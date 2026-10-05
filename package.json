@@ -1,0 +1,23 @@
+{
+  "name": "kelompok3-be",
+  "version": "1.0.0",
+  "description": "kelompok-3",
+  "keywords": [
+    "backend"
+  ],
+  "homepage": "https://github.com/mf4dhil/kelompok3-be#readme",
+  "bugs": {
+    "url": "https://github.com/mf4dhil/kelompok3-be/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mf4dhil/kelompok3-be.git"
+  },
+  "license": "MIT",
+  "author": "kelompok3-bpvp",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "test": "nodemon index"
+  }
+}
