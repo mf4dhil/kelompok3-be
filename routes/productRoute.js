@@ -1,17 +1,17 @@
 import express from "express";
-import { 
-    createProduct,
-     deleteProduct, 
-     getProductById, 
-     getProducts, 
-     updateProduct } from "../controller/productcontroller.js";
+import { createDraftProduct, createProduct, createVariantErrorCheck, deleteProduct, deleteProductErrorCheck, getProductById, getProducts, updateProduct, updateProductVariant, uploadProductImage } from "../controller/productcontroller.js";
 
 const router = express.Router();
 
 router.get("/products", getProducts);
 router.get("/products/:id", getProductById);
 router.post("/products", createProduct);
-router.patch("/products/:id", updateProduct);
+router.post("/products", createDraftProduct);
+router.put("/products/:id", updateProduct);
 router.delete("/products/:id", deleteProduct);
+router.patch("/products/:id/image", uploadProductImage);
+router.put("/products/variants/:variantId", updateProductVariant);
+router.delete("/products/:id/error-check", deleteProductErrorCheck);
+router.post("/products/variants/error-check", createVariantErrorCheck );
 
 export default router;
