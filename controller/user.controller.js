@@ -12,12 +12,12 @@ export const getAllUsers = async (req, res) => {
 export const editUserByAdmin = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, email, phone, address, role } = req.body;
+    const { name, email, phone, address } = req.body;
     const user = await User.findByPk(id);
     if (!user) {
       return res.status(404).json({ msg: 'User not found' });
     }
-    await user.update({ name, email, phone, address, role });
+    await user.update({ name, email, phone, address });
     res.json({ msg: 'User updated successfully', user: { id: user.id, name: user.name, email: user.email, phone: user.phone, address: user.address, role: user.role } });
   } catch (err) {
     res.status(500).json({ msg: err.message });
