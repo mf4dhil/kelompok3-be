@@ -58,25 +58,23 @@ export const createProduct = async (req, res) => {
       return res.status(400).json({ message: 'Name dan type_id wajib diisi' });
     }
 
-    if (!variants || !Array.isArray(variants) || variants.length === 0) {
-      return res.status(400).json({ message: 'Minimal satu variant harus dipilih' });
-    }
-
-    // Validate each variant
-    for (const v of variants) {
-      if (!v.shape_id || !v.size_id || !v.flavor_id || v.price === undefined) {
-        return res.status(400).json({ message: 'Setiap variant harus memiliki shape_id, size_id, flavor_id, dan price' });
+    // Validate each variant if provided
+    if (variants && Array.isArray(variants) && variants.length > 0) {
+      for (const v of variants) {
+        if (!v.shape_id || !v.size_id || !v.flavor_id || v.price === undefined) {
+          return res.status(400).json({ message: 'Setiap variant harus memiliki shape_id, size_id, flavor_id, dan price' });
+        }
+        if (typeof v.price !== 'number' || v.price < 0) {
+          return res.status(400).json({ message: 'Harga variant harus berupa angka positif' });
+        }
       }
-      if (typeof v.price !== 'number' || v.price < 0) {
-        return res.status(400).json({ message: 'Harga variant harus berupa angka positif' });
-      }
-    }
 
-    // Check for duplicate combinations
-    const comboKeys = variants.map(v => `${v.shape_id}-${v.size_id}-${v.flavor_id}`);
-    const uniqueCombos = new Set(comboKeys);
-    if (comboKeys.length !== uniqueCombos.size) {
-      return res.status(400).json({ message: 'Terdapat kombinasi variant yang duplikat' });
+      // Check for duplicate combinations
+      const comboKeys = variants.map(v => `${v.shape_id}-${v.size_id}-${v.flavor_id}`);
+      const uniqueCombos = new Set(comboKeys);
+      if (comboKeys.length !== uniqueCombos.size) {
+        return res.status(400).json({ message: 'Terdapat kombinasi variant yang duplikat' });
+      }
     }
 
     // Generate slug from name
@@ -91,10 +89,82 @@ export const createProduct = async (req, res) => {
       is_active: is_active !== undefined ? is_active : true,
     }, { transaction: t });
 
-    // Create all variants
-    const createdVariants = await Promise.all(variants.map(v =>
+    // Create all variants if provided
+    let createdVariants = [];
+    if (variants && Array.isArray(variants) && variants.length > 0) {
+      createdVariants = await Promise.all(variants.map(v =>
+        ProductVariant.create({
+          product_id: product.id,
+          shape_id: v.shape_id,
+          size_id: v.size_id,
+          flavor_id: v.flavor_id,
+          price: v.price,
+          is_active: v.is_active !== undefined ? v.is_active : true,
+        }, { transaction: t })
+      ));
+    }
+
+    await t.commit();
+
+    res.status(201).json({
+      message: 'Product berhasil ditambahkan',
+      product,
+      variants: createdVariants,
+    });
+  } catch (error) {
+    await t.rollback();
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const addProductVariants = async (req, res) => {
+  const t = await Product.sequelize.transaction();
+  try {
+    const { id } = req.params;
+    const { variants } = req.body;
+
+    if (!variants || !Array.isArray(variants) || variants.length === 0) {
+      return res.status(400).json({ message: 'Minimal satu variant harus dipilih' });
+    }
+
+    // Check product exists
+    const product = await Product.findByPk(id);
+    if (!product) {
+      return res.status(404).json({ message: 'Product tidak ditemukan' });
+    }
+
+    // Validate each variant
+    for (const v of variants) {
+      if (!v.shape_id || !v.size_id || !v.flavor_id || v.price === undefined) {
+        return res.status(400).json({ message: 'Setiap variant harus memiliki shape_id, size_id, flavor_id, dan price' });
+      }
+      if (typeof v.price !== 'number' || v.price < 0) {
+        return res.status(400).json({ message: 'Harga variant harus berupa angka positif' });
+      }
+    }
+
+    // Check for duplicate combinations against existing variants
+    const existingVariants = await ProductVariant.findAll({
+      where: { product_id: id },
+      transaction: t,
+    });
+    const existingMap = new Map(existingVariants.map(ev => [`${ev.shape_id}-${ev.size_id}-${ev.flavor_id}`, ev]));
+
+    const newVariants = [];
+    for (const v of variants) {
+      const key = `${v.shape_id}-${v.size_id}-${v.flavor_id}`;
+      if (existingMap.has(key)) {
+        return res.status(400).json({ 
+          message: `Kombinasi Shape=${v.shape_id}, Size=${v.size_id}, Flavor=${v.flavor_id} sudah ada untuk produk ini` 
+        });
+      }
+      newVariants.push(v);
+    }
+
+    // Create all new variants
+    const createdVariants = await Promise.all(newVariants.map(v =>
       ProductVariant.create({
-        product_id: product.id,
+        product_id: id,
         shape_id: v.shape_id,
         size_id: v.size_id,
         flavor_id: v.flavor_id,
@@ -106,8 +176,7 @@ export const createProduct = async (req, res) => {
     await t.commit();
 
     res.status(201).json({
-      message: 'Product berhasil ditambahkan',
-      product,
+      message: 'Variant berhasil ditambahkan',
       variants: createdVariants,
     });
   } catch (error) {

@@ -26,4 +26,7 @@ router.put('/products/:id', authMiddleware, adminMiddleware, productController.u
 router.patch('/products/:id/status', authMiddleware, adminMiddleware, productController.updateProductStatus);
 router.delete('/products/:id', authMiddleware, adminMiddleware, productController.deleteProduct);
 
+// Add variants to an existing product (admin)
+router.put('/products/:id/variants', authMiddleware, adminMiddleware, productController.addProductVariants);
+
 export default router;
