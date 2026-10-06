@@ -16,11 +16,6 @@ const Product = db.define(
       autoIncrement: true,
     },
 
-    type_id: {
-      type: DataTypes.INTEGER,
-      allowNull: false,
-    },
-
     name: {
       type: DataTypes.STRING,
       allowNull: false,
@@ -40,6 +35,12 @@ const Product = db.define(
       type: DataTypes.STRING,
     },
 
+    category: {
+      type: DataTypes.ENUM('signature', 'favorit'),
+      defaultValue: 'favorit',
+      allowNull: false,
+    },
+
     is_active: {
       type: DataTypes.BOOLEAN,
       defaultValue: true,
@@ -48,10 +49,8 @@ const Product = db.define(
   {
     tableName: 'products',
     timestamps: false,
-  },
+  }
 );
-
-export default Product;
 
 Categories.hasMany(Type, {
   foreignKey: 'category_id',
@@ -105,3 +104,5 @@ Flavor.hasMany(ProductVariant, {
 ProductVariant.belongsTo(Flavor, {
   foreignKey: 'flavor_id',
 });
+
+export default Product;
