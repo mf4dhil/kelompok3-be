@@ -10,6 +10,7 @@ import sizeRoute from './routes/sizeRoute.js';
 import flavorRoute from './routes/flavorRoute.js';
 import typeRoute from './routes/typeRoute.js';
 import categoriesRoute from './routes/categoriesRoute.js';
+import rekeningRoute from './routes/rekeningRoute.js';
 
 dotenv.config();
 
@@ -42,6 +43,7 @@ app.use('/api', sizeRoute);
 app.use('/api', flavorRoute);
 app.use('/api', typeRoute);
 app.use('/api', categoriesRoute);
+app.use('/api', rekeningRoute);
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
