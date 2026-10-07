@@ -108,7 +108,7 @@ updatedAt  | DATETIME     | Timestamp otomatis
        "name": "Nama Baru",
        "email": "user_baru@example.com",
        "phone": "089999999999",
-       "address": "Alamat Baru"
+       "address": "address Baru"
      }
    - Response (200 OK):
      {
@@ -118,7 +118,7 @@ updatedAt  | DATETIME     | Timestamp otomatis
          "name": "Nama Baru",
          "email": "user_baru@example.com",
          "phone": "089999999999",
-         "address": "Alamat Baru"
+         "address": "address Baru"
        }
      }
 
@@ -131,7 +131,7 @@ updatedAt  | DATETIME     | Timestamp otomatis
        "name": "Nama User Updated",
        "email": "user_updated@example.com",
        "phone": "081111111111",
-       "address": "Alamat Admin Edit",
+       "address": "address Admin Edit",
        "role": "admin"
      }
    - Response (200 OK):
@@ -142,7 +142,7 @@ updatedAt  | DATETIME     | Timestamp otomatis
          "name": "Nama User Updated",
          "email": "user_updated@example.com",
          "phone": "081111111111",
-         "address": "Alamat Admin Edit",
+         "address": "address Admin Edit",
          "role": "admin"
        }
      }
