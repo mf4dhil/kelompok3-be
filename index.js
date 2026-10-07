@@ -10,6 +10,9 @@ import sizeRoute from './routes/sizeRoute.js';
 import flavorRoute from './routes/flavorRoute.js';
 import typeRoute from './routes/typeRoute.js';
 import categoriesRoute from './routes/categoriesRoute.js';
+import customerRoute from './routes/customerRoutes.js';
+import rekeningRoute from './routes/rekeningRoutes.js';
+import orderRoute from './routes/orderRoutes.js';
 
 dotenv.config();
 
@@ -42,6 +45,9 @@ app.use('/api', sizeRoute);
 app.use('/api', flavorRoute);
 app.use('/api', typeRoute);
 app.use('/api', categoriesRoute);
+app.use('/api', customerRoute);
+app.use('/api', rekeningRoute);
+app.use('/api', orderRoute);
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
