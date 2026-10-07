@@ -3,6 +3,7 @@ import OrderItem from "../models/order_item.js";
 import Customer from "../models/customer.js";
 import ProductVariant from "../models/productvariants.js";
 import Rekening from "../models/rekening.js";
+import Payment from "../models/payment.js";
 import db from "../config/dababase.js";
 import { Op } from "sequelize";
 
@@ -80,6 +81,7 @@ export const getOrderById = async (req, res) => {
         { model: Customer, attributes: ["id", "name", "phone", "email", "address"] },
         { model: OrderItem, include: [{ model: ProductVariant }] },
         { model: Rekening, as: "rekening" },
+        { model: Payment, as: "payments", include: [{ model: Rekening, as: "rekening" }], separate: true, order: [["created_at", "DESC"]] },
       ],
     });
 

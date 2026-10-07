@@ -61,13 +61,14 @@ export const getPaymentById = async (req, res) => {
 export const createPayment = async (req, res) => {
   const t = await db.transaction();
   try {
-    const { order_id, rekening_id, amount, payment_method, payment_type, status } = req.body;
+    const { order_id, amount, payment_method, payment_type, status, rekening_id } = req.body;
+    const userRole = req.user?.role || 'admin';
 
     // Validasi input wajib
-    if (!order_id || !amount || !payment_method) {
+    if (!order_id || !payment_method) {
       await t.rollback();
       return res.status(400).json({
-        message: "order_id, amount, dan payment_method wajib diisi",
+        message: "order_id, dan payment_method wajib diisi",
       });
     }
 
@@ -95,39 +96,56 @@ export const createPayment = async (req, res) => {
       }
     }
 
+    // Tentukan status dan paid_at berdasarkan role user
+    let paymentStatus = status;
+    let paidAt = null;
+
+    if (userRole === 'admin') {
+      // Admin otomatis diverifikasi
+      paymentStatus = paymentStatus || 'verified';
+      if (paymentStatus === 'verified') {
+        paidAt = new Date();
+      }
+    } else {
+      // Customer menunggu verifikasi admin
+      paymentStatus = paymentStatus || 'pending';
+      paidAt = null;
+    }
+
+    // Default amount jika tidak diberikan
+    // Jika payment_type = 'partial', gunakan 50% dari total order
+    let finalAmount = amount !== undefined && amount > 0 ? amount : order.total_amount;
+    if ((payment_type === 'dp' || payment_type === 'partial') && (!amount || amount <= 0)) {
+      finalAmount = Math.ceil(order.total_amount * 0.5);
+    }
+
     // Cek apakah file diupload
     let paymentProofPath = null;
     if (req.file) {
       paymentProofPath = `/uploads/payments/${req.file.filename}`;
     }
 
-    // Tentukan paid_at jika status verified/paid
-    let paidAt = null;
-    if (status === "verified") {
-      paidAt = new Date();
-    }
-
     const payment = await Payment.create(
       {
         order_id,
-        rekening_id: rekening_id || null,
-        amount,
+        rekening_id: payment_method === 'transfer' ? rekening_id : null,
+        amount: finalAmount,
         payment_method,
-        payment_type: payment_type || "full",
+        payment_type: payment_type || (finalAmount >= order.total_amount ? "full" : "dp"),
         payment_proof: paymentProofPath,
-        status: status || "pending",
+        status: paymentStatus,
         paid_at: paidAt,
       },
       { transaction: t }
     );
 
-    // Update payment_status pada order berdasarkan total pembayaran
-    const allPayments = await Payment.findAll({
-      where: { order_id },
+    // Update payment_status pada order berdasarkan total pembayaran (Hanya yang verified)
+    const allVerifiedPayments = await Payment.findAll({
+      where: { order_id, status: "verified" },
       transaction: t,
     });
 
-    const totalPaid = allPayments.reduce((sum, p) => sum + p.amount, 0);
+    const totalPaid = allVerifiedPayments.reduce((sum, p) => sum + p.amount, 0);
     let newPaymentStatus = "unpaid";
     if (totalPaid >= order.total_amount) {
       newPaymentStatus = "paid";
@@ -188,9 +206,9 @@ export const updatePayment = async (req, res) => {
 
     await payment.update(updateData, { transaction: t });
 
-    // Recalculate order payment_status
+    // Recalculate order payment_status (hanya verified payments yang dihitung)
     const allPayments = await Payment.findAll({
-      where: { order_id: payment.order_id },
+      where: { order_id: payment.order_id, status: "verified" },
       transaction: t,
     });
 
@@ -238,9 +256,9 @@ export const deletePayment = async (req, res) => {
     const orderId = payment.order_id;
     await payment.destroy({ transaction: t });
 
-    // Recalculate order payment_status
+    // Recalculate order payment_status (hanya verified payments yang dihitung)
     const allPayments = await Payment.findAll({
-      where: { order_id: orderId },
+      where: { order_id: orderId, status: "verified" },
       transaction: t,
     });
 

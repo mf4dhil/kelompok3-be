@@ -1,6 +1,8 @@
 import { execSync } from "child_process";
 import { Sequelize } from "sequelize";
 import db from "../config/dababase.js";
+import fs from "fs";
+import path from "path";
 
 const args = process.argv.slice(2);
 const shouldSeed = args.includes("--seed");
@@ -10,6 +12,22 @@ const resetDatabase = async () => {
   try {
     console.log("🔄 Connecting to database...");
     await db.authenticate();
+
+    // Hapus seluruh file foto di uploads/payments/
+    const uploadDir = path.join(process.cwd(), "uploads", "payments");
+    if (fs.existsSync(uploadDir)) {
+      const files = fs.readdirSync(uploadDir);
+      for (const file of files) {
+        const filePath = path.join(uploadDir, file);
+        if (fs.lstatSync(filePath).isFile()) {
+          fs.unlinkSync(filePath);
+          console.log(`  🗑️  Deleted file: ${file}`);
+        }
+      }
+      console.log(`✅ Cleared ${files.length} file(s) from uploads/payments/`);
+    } else {
+      console.log("📁 Folder uploads/payments/ tidak ditemukan, skip hapus file.");
+    }
 
     // Get all table names
     const [tables] = await db.query(

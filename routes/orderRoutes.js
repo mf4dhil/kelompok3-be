@@ -1,4 +1,6 @@
 import express from "express";
+import uploadMiddleware from "../middleware/uploadMiddleware.js";
+import { authMiddleware, adminMiddleware } from "../middleware/index.middleware.js";
 import {
   getOrders,
   getOrderById,
@@ -29,8 +31,8 @@ router.delete("/orders/:id", deleteOrder);
 // Routes Pembayaran (Normalisasi)
 router.get("/payments", getPayments);
 router.get("/payments/:id", getPaymentById);
-router.post("/payments", createPayment);
-router.patch("/payments/:id", updatePayment);
+router.post("/payments", authMiddleware, uploadMiddleware.single('payment_proof'), createPayment);
+router.patch("/payments/:id", authMiddleware, uploadMiddleware.single('payment_proof'), updatePayment);
 router.delete("/payments/:id", deletePayment);
 
 export default router;

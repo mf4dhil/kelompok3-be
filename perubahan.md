@@ -4,11 +4,15 @@
 - **Normalisasi pembayaran**: dibuat tabel terpisah `payments` dan dipindahkan semua field terkait pembayaran dari `orders`.
 - **Upload bukti pembayaran**: integrasi Multer, penyimpanan di `uploads/payments/`, endpoint API mendukung multipart/form‑data.
 - **Endpoint Payments**: CRUD lengkap (`GET /api/payments`, `GET /api/payments/:id`, `POST /api/payments`, `PATCH /api/payments/:id`, `DELETE /api/payments/:id`).
-- **Helper Reset DB**: script `seed/reset-db.js` untuk drop‑all‑tables, sync ulang, dan optional seed (`--seed`, `--seed-all`).
+- **Helper Reset DB**: script `seed/reset-db.js` untuk drop‑all‑tables, sync ulang, dan optional seed (`--seed`, `--seed-all`) serta **menghapus seluruh file foto di `uploads/payments/`**.
 - **Dokumentasi**: `PAYMENTS_API_DOCUMENTATION.md` dan `NORMALISASI_PEMBAYARAN.md`.
 - **Pembaruan Index**: meng‑import `uploadMiddleware`, menambahkan static folder `/uploads`, dan middleware khusus untuk routes payments.
 - **Perbaikan Seed**: `seed/seed.js` diubah menjadi idempotent (`findOrCreate`), memastikan seed dapat dijalankan berulang tanpa error.
 - **Perbaikan Routes**: import file `rekeningRoutes.js` yang benar, menambahkan middleware upload pada routes payment.
+- **Auto-verifikasi admin**: pembayaran oleh admin otomatis `status: "verified"` dan `paid_at: now`; customer → `pending`.
+- **Opsi DP/Full**: pembayaran mendukung tipe `dp` (50% total order) dan `full` (total penuh) — dihitung otomatis di backend.
+- **Hanya payment verified dihitung**: `order.payment_status` dihitung ulang hanya dari payment dengan `status = "verified"`.
+- **Perbaikan Multer route-level**: middleware upload dipindahkan ke route-level (`orderRoutes.js`) agar tidak mengganggu DELETE request non-multipart.
 
 ## Detail Perubahan
 | File | Perubahan |
