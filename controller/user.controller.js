@@ -39,3 +39,17 @@ export const editProfileSelf = async (req, res) => {
     res.status(500).json({ msg: err.message });
   }
 };
+
+export const deleteUser = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const user = await User.findByPk(id);
+    if (!user) {
+      return res.status(404).json({ msg: 'User not found' });
+    }
+    await user.destroy();
+    res.json({ msg: 'User deleted successfully' });
+  } catch (err) {
+    res.status(500).json({ msg: err.message });
+  }
+};
