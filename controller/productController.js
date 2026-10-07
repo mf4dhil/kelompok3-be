@@ -1,10 +1,8 @@
-import Product from "../models/product.js";
-import Type from "../models/type.js";
-import Shape from "../models/shape.js";
-import Size from "../models/size.js";
-import Flavor from "../models/flavors.js";
-import Categories from "../models/categories.js";
-import ProductVariant from "../models/productvariants.js";
+import Product from '../models/product.js';
+import Shape from '../models/shape.js';
+import Size from '../models/size.js';
+import Flavor from '../models/flavors.js';
+import ProductVariant from '../models/productvariants.js';
 
 // Helper slug generator
 const createSlug = (text) => {
@@ -20,21 +18,19 @@ const createSlug = (text) => {
 // 1. GET /api/products - Daftar Produk
 export const getProducts = async (req, res) => {
   try {
-    const data = await Product.findAll({
-      include: [
-        {
-          model: Type,
-          include: [Categories],
-        },
-        {
-          model: ProductVariant,
-          include: [Shape, Size, Flavor],
-        },
-      ],
-      order: [["id", "ASC"]],
+    const products = await Product.findAll({
+      include: [{
+        model: ProductVariant,
+        as: 'productvariants',
+        include: [
+          { model: Shape, as: 'shape' },
+          { model: Size, as: 'size' },
+          { model: Flavor, as: 'flavor' },
+        ],
+      }],
+      order: [['id', 'ASC']],
     });
-
-    res.json(data);
+    res.json(products);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -44,22 +40,19 @@ export const getProducts = async (req, res) => {
 export const getProductById = async (req, res) => {
   try {
     const data = await Product.findByPk(req.params.id, {
-      include: [
-        {
-          model: Type,
-          include: [Categories],
-        },
-        {
-          model: ProductVariant,
-          include: [Shape, Size, Flavor],
-        },
-      ],
+      include: [{
+        model: ProductVariant,
+        as: 'productvariants',
+        include: [
+          { model: Shape, as: 'shape' },
+          { model: Size, as: 'size' },
+          { model: Flavor, as: 'flavor' },
+        ],
+      }],
     });
-
     if (!data) {
       return res.status(404).json({ message: "Product tidak ditemukan" });
     }
-
     res.json(data);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -68,42 +61,137 @@ export const getProductById = async (req, res) => {
 
 // 3. POST /api/products - Tambah Produk (+ Varian PO)
 export const createProduct = async (req, res) => {
+  const t = await Product.sequelize.transaction();
   try {
-    const { type_id, name, description, image, is_active, variants } = req.body;
+    const { name, description, type_id, is_active, variants } = req.body;
 
-    const type = await Type.findByPk(type_id);
-    if (!type) {
-      return res.status(404).json({ message: "Type tidak ditemukan" });
+    if (!name || !type_id) {
+      return res.status(400).json({ message: 'Name dan type_id wajib diisi' });
     }
 
-    const slug = createSlug(name);
-    const existingProduct = await Product.findOne({ where: { slug } });
-    if (existingProduct) {
-      return res.status(400).json({ message: "Nama/slug produk sudah digunakan" });
+    // Validate each variant if provided
+    if (variants && Array.isArray(variants) && variants.length > 0) {
+      for (const v of variants) {
+        if (!v.shape_id || !v.size_id || !v.flavor_id || v.price === undefined) {
+          return res.status(400).json({ message: 'Setiap variant harus memiliki shape_id, size_id, flavor_id, dan price' });
+        }
+        if (typeof v.price !== 'number' || v.price < 0) {
+          return res.status(400).json({ message: 'Harga variant harus berupa angka positif' });
+        }
+      }
+
+      // Check for duplicate combinations
+      const comboKeys = variants.map(v => `${v.shape_id}-${v.size_id}-${v.flavor_id}`);
+      const uniqueCombos = new Set(comboKeys);
+      if (comboKeys.length !== uniqueCombos.size) {
+        return res.status(400).json({ message: 'Terdapat kombinasi variant yang duplikat' });
+      }
     }
 
-    const newProduct = await Product.create({
-      type_id,
+    // Generate slug from name
+    const slug = name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+
+    // Create product
+    const product = await Product.create({
       name,
       slug,
-      description,
-      image: image || null,
-      is_active: is_active ?? true,
-    });
+      description: description || null,
+      type_id,
+      is_active: is_active !== undefined ? is_active : true,
+    }, { transaction: t });
 
+    // Create all variants if provided
+    let createdVariants = [];
     if (variants && Array.isArray(variants) && variants.length > 0) {
-      const variantData = variants.map((v) => ({
-        ...v,
-        product_id: newProduct.id,
-      }));
-      await ProductVariant.bulkCreate(variantData);
+      createdVariants = await Promise.all(variants.map(v =>
+        ProductVariant.create({
+          product_id: product.id,
+          shape_id: v.shape_id,
+          size_id: v.size_id,
+          flavor_id: v.flavor_id,
+          price: v.price,
+          is_active: v.is_active !== undefined ? v.is_active : true,
+        }, { transaction: t })
+      ));
     }
 
+    await t.commit();
+
     res.status(201).json({
-      message: "Product PO kue berhasil ditambahkan",
-      data: newProduct,
+      message: 'Product berhasil ditambahkan',
+      product,
+      variants: createdVariants,
     });
   } catch (error) {
+    await t.rollback();
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const addProductVariants = async (req, res) => {
+  const t = await Product.sequelize.transaction();
+  try {
+    const { id } = req.params;
+    const { variants } = req.body;
+
+    if (!variants || !Array.isArray(variants) || variants.length === 0) {
+      return res.status(400).json({ message: 'Minimal satu variant harus dipilih' });
+    }
+
+    // Check product exists
+    const product = await Product.findByPk(id);
+    if (!product) {
+      return res.status(404).json({ message: 'Product tidak ditemukan' });
+    }
+
+    // Validate each variant
+    for (const v of variants) {
+      if (!v.shape_id || !v.size_id || !v.flavor_id || v.price === undefined) {
+        return res.status(400).json({ message: 'Setiap variant harus memiliki shape_id, size_id, flavor_id, dan price' });
+      }
+      if (typeof v.price !== 'number' || v.price < 0) {
+        return res.status(400).json({ message: 'Harga variant harus berupa angka positif' });
+      }
+    }
+
+    // Check for duplicate combinations against existing variants
+    const existingVariants = await ProductVariant.findAll({
+      where: { product_id: id },
+      transaction: t,
+    });
+    const existingMap = new Map(existingVariants.map(ev => [`${ev.shape_id}-${ev.size_id}-${ev.flavor_id}`, ev]));
+
+    const newVariants = [];
+    for (const v of variants) {
+      const key = `${v.shape_id}-${v.size_id}-${v.flavor_id}`;
+      if (existingMap.has(key)) {
+        return res.status(400).json({ 
+          message: `Kombinasi Shape=${v.shape_id}, Size=${v.size_id}, Flavor=${v.flavor_id} sudah ada untuk produk ini` 
+        });
+      }
+      newVariants.push(v);
+    }
+
+    // Create all new variants
+    const createdVariants = await Promise.all(newVariants.map(v =>
+      ProductVariant.create({
+        product_id: id,
+        shape_id: v.shape_id,
+        size_id: v.size_id,
+        flavor_id: v.flavor_id,
+        price: v.price,
+        is_active: v.is_active !== undefined ? v.is_active : true,
+      }, { transaction: t })
+    ));
+
+    await t.commit();
+
+    res.status(201).json({
+      message: 'Variant berhasil ditambahkan',
+      variants: createdVariants,
+    });
+  } catch (error) {
+    await t.rollback();
     res.status(500).json({ message: error.message });
   }
 };
@@ -137,26 +225,74 @@ export const createDraftProduct = async (req, res) => {
 
 // 5. PUT /api/products/:id - Ubah Produk
 export const updateProduct = async (req, res) => {
+  const t = await Product.sequelize.transaction();
   try {
-    const { name } = req.body;
-    const data = await Product.findByPk(req.params.id);
+    const { id } = req.params;
+    const { name, description, type_id, is_active, variants } = req.body;
 
-    if (!data) {
-      return res.status(404).json({ message: "Product tidak ditemukan" });
+    const product = await Product.findByPk(id, { transaction: t });
+    if (!product) {
+      return res.status(404).json({
+        message: 'Product tidak ditemukan',
+      });
     }
 
-    let payload = { ...req.body };
-    if (name && name !== data.name) {
-      payload.slug = createSlug(name);
+    // Update product basic info
+    await product.update({
+      ...(name && { name }),
+      ...(description !== undefined && { description }),
+      ...(type_id && { type_id }),
+      ...(is_active !== undefined && { is_active }),
+    }, { transaction: t });
+
+    // If variants provided, handle variant updates
+    if (variants && Array.isArray(variants)) {
+      // Get existing variants
+      const existingVariants = await ProductVariant.findAll({
+        where: { product_id: id },
+        transaction: t,
+      });
+
+      const existingMap = new Map(existingVariants.map(ev => [`${ev.shape_id}-${ev.size_id}-${ev.flavor_id}`, ev]));
+
+      for (const v of variants) {
+        const key = `${v.shape_id}-${v.size_id}-${v.flavor_id}`;
+        const existing = existingMap.get(key);
+
+        if (existing) {
+          // Update existing variant price and active status
+          await existing.update({
+            ...(v.price !== undefined && { price: v.price }),
+            ...(v.is_active !== undefined && { is_active: v.is_active }),
+          }, { transaction: t });
+          existingMap.delete(key);
+        } else {
+          // Create new variant
+          await ProductVariant.create({
+            product_id: id,
+            shape_id: v.shape_id,
+            size_id: v.size_id,
+            flavor_id: v.flavor_id,
+            price: v.price,
+            is_active: v.is_active !== undefined ? v.is_active : true,
+          }, { transaction: t });
+        }
+      }
     }
 
-    await data.update(payload);
+    await t.commit();
+
+    // Fetch updated product with variants
+    const updatedProduct = await Product.findByPk(id, {
+      include: [{ model: ProductVariant, as: 'productvariants' }],
+    });
 
     res.json({
-      message: "Updated Product",
-      data,
+      message: 'Product berhasil diperbarui',
+      product: updatedProduct,
     });
   } catch (error) {
+    await t.rollback();
     res.status(500).json({ message: error.message });
   }
 };
@@ -164,104 +300,42 @@ export const updateProduct = async (req, res) => {
 // 6. DELETE /api/products/:id - Hapus Produk
 export const deleteProduct = async (req, res) => {
   try {
-    const data = await Product.findByPk(req.params.id);
+    const { id } = req.params;
+    const product = await Product.findByPk(id);
 
-    if (!data) {
-      return res.status(404).json({ message: "Product tidak ditemukan" });
-    }
-
-    await ProductVariant.destroy({ where: { product_id: data.id } });
-    await data.destroy();
-
-    res.json({ message: "Deleted Product" });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-};
-
-// 7. DELETE /api/products/:id/error-check - Contoh Error Hapus Produk
-export const deleteProductErrorCheck = async (req, res) => {
-  try {
-    const data = await Product.findByPk(req.params.id);
-
-    if (!data) {
-      return res.status(404).json({ message: "Product tidak ditemukan" });
-    }
-
-    // Simulasi penolakan penghapusan jika terikat transaksi PO
-    return res.status(400).json({
-      message: "Gagal menghapus! Produk terikat dengan data transaksi PO aktif.",
-      error: "FK_CONSTRAINT_TRANSACTION_EXISTS",
-    });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-};
-
-// 8. PUT /api/products/variants/:variantId - Ubah Satuan & Harga
-export const updateProductVariant = async (req, res) => {
-  try {
-    const { variantId } = req.params;
-    const variant = await ProductVariant.findByPk(variantId);
-
-    if (!variant) {
-      return res.status(404).json({ message: "Varian produk tidak ditemukan" });
-    }
-
-    await variant.update(req.body);
-
-    res.json({
-      message: "Satuan & harga varian berhasil diubah",
-      data: variant,
-    });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-};
-
-// 9. POST /api/products/variants/error-check - Contoh Error Satuan Tidak Valid
-export const createVariantErrorCheck = async (req, res) => {
-  try {
-    const { price, shape_id, size_id } = req.body;
-
-    if (!price || price <= 0 || !shape_id || !size_id) {
-      return res.status(422).json({
-        message: "Validasi Gagal: Satuan, ukuran, atau harga tidak valid",
-        errors: {
-          price: !price || price <= 0 ? "Harga harus lebih dari 0" : null,
-          shape_id: !shape_id ? "Bentuk kue wajib dipilih" : null,
-          size_id: !size_id ? "Ukuran kue wajib dipilih" : null,
-        },
+    if (!product) {
+      return res.status(404).json({
+        message: 'Product tidak ditemukan',
       });
     }
 
-    res.json({ message: "Validasi berhasil" });
+    await product.destroy();
+    res.json({
+      message: 'Product berhasil dihapus',
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
 
-// 10. PATCH /api/products/:id/image - Upload Gambar Produk
-export const uploadProductImage = async (req, res) => {
+export const updateProductStatus = async (req, res) => {
   try {
-    const data = await Product.findByPk(req.params.id);
+    const { id } = req.params;
+    const { status } = req.body;
 
-    if (!data) {
-      return res.status(404).json({ message: "Product tidak ditemukan" });
+    if (status === undefined) {
+      return res.status(400).json({ message: 'Status wajib diisi (true/false)' });
     }
 
-    // Mengambil path/URL dari req.file (multer) atau req.body.image
-    const imageUrl = req.file ? req.file.path : req.body.image;
-
-    if (!imageUrl) {
-      return res.status(400).json({ message: "Gambar tidak boleh kosong" });
+    const product = await Product.findByPk(id);
+    if (!product) {
+      return res.status(404).json({ message: 'Product tidak ditemukan' });
     }
 
-    await data.update({ image: imageUrl });
-
+    await product.update({ is_active: status });
     res.json({
-      message: "Gambar produk berhasil diperbarui",
-      data,
+      message: 'Product status updated successfully',
+      product,
     });
   } catch (error) {
     res.status(500).json({ message: error.message });

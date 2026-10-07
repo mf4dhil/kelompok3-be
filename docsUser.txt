@@ -1,0 +1,160 @@
+==================================================
+DOKUMENTASI API USER & AUTHENTICATION (KELOMPOK 3)
+==================================================
+
+Base URL: http://localhost:3000/api
+
+--------------------------------------------------
+1. TABEL USER (DATABASE SCHEMA)
+--------------------------------------------------
+Table Name: users
+
+Field Name | Type         | Constraints / Description
+-----------|--------------|---------------------------------------------
+id         | INTEGER      | Primary Key, Auto Increment
+name       | STRING       | Not Null
+role       | STRING       | Default: "admin" (role user adalah admin)
+email      | STRING       | Unique, Not Null, Email Format
+phone      | STRING       | Nullable
+password   | STRING       | Not Null (Hashed using bcrypt)
+address    | TEXT         | Nullable
+createdAt  | DATETIME     | Timestamp otomatis
+updatedAt  | DATETIME     | Timestamp otomatis
+
+--------------------------------------------------
+2. LIST ENDPOINTS
+--------------------------------------------------
+
+1) REGISTER
+   - Endpoint : POST /api/register
+   - Access   : Public
+   - Description: Mendaftarkan akun user baru.
+   - Request Body (JSON):
+     {
+       "name": "Nama User",
+       "email": "user@example.com",
+       "password": "password123",
+       "phone": "081234567890",       // optional
+       "address": "Jl. Contoh No. 1"   // optional
+     }
+   - Response (201 Created):
+     {
+       "id": 1,
+       "name": "Nama User",
+       "email": "user@example.com",
+       "role": "admin"
+     }
+
+2) LOGIN
+   - Endpoint : POST /api/login
+   - Access   : Public
+   - Description: Authentikasi user dan menghasilkan JWT token. Token disimpan pada HTTP-Only Cookie dan di-return pada response body.
+   - Request Body (JSON):
+     {
+       "email": "user@example.com",
+       "password": "password123"
+     }
+   - Response (200 OK):
+     {
+       "msg": "Login successful",
+       "token": "<jwt_token_string>"
+     }
+
+3) LOGOUT
+   - Endpoint : POST /api/logout
+   - Access   : Public / Authenticated
+   - Description: Menghapus token dari cookie.
+   - Response (200 OK):
+     {
+       "msg": "Logged out"
+     }
+
+4) GET USER PROFILE (ME)
+   - Endpoint : GET /api/me
+   - Access   : Authenticated (Header `Authorization: Bearer <token>` atau Cookie `token`)
+   - Description: Mendapatkan data profile user yang sedang login.
+   - Response (200 OK):
+     {
+       "id": 1,
+       "name": "Nama User",
+       "role": "admin",
+       "email": "user@example.com",
+       "phone": "081234567890",
+       "address": "Jl. Contoh No. 1",
+       "createdAt": "2026-10-06T00:00:00.000Z",
+       "updatedAt": "2026-10-06T00:00:00.000Z"
+     }
+
+5) RESET PASSWORD
+   - Endpoint : POST /api/resetPassword
+   - Access   : Public
+   - Description: Mengubah password user berdasarkan email.
+   - Request Body (JSON):
+     {
+       "email": "user@example.com",
+       "newPassword": "newpassword123"
+     }
+   - Response (200 OK):
+     {
+       "msg": "Password reset successful"
+     }
+
+6) EDIT PROFILE SENDIRI
+   - Endpoint : PUT /api/profile/edit
+   - Access   : Authenticated (User biasa / Admin)
+   - Description: User mengedit profil milik dirinya sendiri.
+   - Request Body (JSON):
+     {
+       "name": "Nama Baru",
+       "email": "user_baru@example.com",
+       "phone": "089999999999",
+       "address": "Alamat Baru"
+     }
+   - Response (200 OK):
+     {
+       "msg": "Profile updated successfully",
+       "user": {
+         "id": 1,
+         "name": "Nama Baru",
+         "email": "user_baru@example.com",
+         "phone": "089999999999",
+         "address": "Alamat Baru"
+       }
+     }
+
+7) EDIT USER MANAPUN (ADMIN)
+   - Endpoint : PUT /api/user/edit/:id
+   - Access   : Authenticated (Khusus Role Admin)
+   - Description: Admin mengedit data user manapun berdasarkan ID.
+   - Request Body (JSON):
+     {
+       "name": "Nama User Updated",
+       "email": "user_updated@example.com",
+       "phone": "081111111111",
+       "address": "Alamat Admin Edit",
+       "role": "admin"
+     }
+   - Response (200 OK):
+     {
+       "msg": "User updated successfully",
+       "user": {
+         "id": 2,
+         "name": "Nama User Updated",
+         "email": "user_updated@example.com",
+         "phone": "081111111111",
+         "address": "Alamat Admin Edit",
+         "role": "admin"
+       }
+     }
+
+8) LIST ALL USERS (ADMIN)
+   - Endpoint : GET /api/users
+   - Access   : Authenticated (Khusus Role Admin)
+   - Description: Mengambil semua data user di database.
+   - Response (200 OK): Array of User objects (tanpa field password).
+
+--------------------------------------------------
+3. SHIELD / MIDDLEWARE
+--------------------------------------------------
+- `authMiddleware`: Memeriksa adanya valid JWT token pada Cookie atau Authorization Bearer Header.
+- `adminMiddleware`: Memeriksa apakah user yang sedang terautentikasi memiliki role "admin".
