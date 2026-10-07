@@ -41,12 +41,18 @@ const Order = db.define(
       type: DataTypes.ENUM("unpaid", "partial", "paid"),
       defaultValue: "unpaid",
     },
-    payment_method: {
-      type: DataTypes.ENUM("cash", "transfer"),
-      allowNull: true,
-    },
-    payment_proof: {
-      type: DataTypes.TEXT,
+    // -- Moved payment related fields to payments table --
+    // payment_method: {
+    //   type: DataTypes.ENUM("cash", "transfer"),
+    //   allowNull: true,
+    // },
+    // payment_proof: {
+    //   type: DataTypes.TEXT,
+    //   allowNull: true,
+    // },
+    // rekening_id masih dipertahankan di Order untuk referensi utama (optional)
+    rekening_id: {
+      type: DataTypes.INTEGER,
       allowNull: true,
     },
   },

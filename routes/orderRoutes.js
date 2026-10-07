@@ -8,6 +8,13 @@ import {
   updateOrderPayment,
   deleteOrder,
 } from "../controller/orderController.js";
+import {
+  getPayments,
+  getPaymentById,
+  createPayment,
+  updatePayment,
+  deletePayment,
+} from "../controller/paymentController.js";
 
 const router = express.Router();
 
@@ -18,5 +25,12 @@ router.patch("/orders/:id", updateOrder);
 router.patch("/orders/:id/status", updateOrderStatus);
 router.patch("/orders/:id/payment", updateOrderPayment);
 router.delete("/orders/:id", deleteOrder);
+
+// Routes Pembayaran (Normalisasi)
+router.get("/payments", getPayments);
+router.get("/payments/:id", getPaymentById);
+router.post("/payments", createPayment);
+router.patch("/payments/:id", updatePayment);
+router.delete("/payments/:id", deletePayment);
 
 export default router;

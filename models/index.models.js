@@ -2,6 +2,7 @@ import Customer from "./customer.js";
 import Rekening from "./rekening.js";
 import Order from "./order.js";
 import OrderItem from "./order_item.js";
+import Payment from "./payment.js";
 
 // Import existing models if needed or ensure they are imported
 import "./product.js";
@@ -18,4 +19,5 @@ export {
   Rekening,
   Order,
   OrderItem,
+  Payment,
 };

@@ -33,5 +33,4 @@ const Rekening = db.define(
     updatedAt: "updated_at",
   }
 );
-
 export default Rekening;

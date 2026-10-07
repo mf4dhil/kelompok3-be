@@ -14,6 +14,9 @@ import customerRoute from './routes/customerRoutes.js';
 import rekeningRoute from './routes/rekeningRoutes.js';
 import orderRoute from './routes/orderRoutes.js';
 
+// Middleware untuk upload file (multer)
+import uploadMiddleware from './middleware/uploadMiddleware.js';
+
 dotenv.config();
 
 const app = express();
@@ -23,10 +26,17 @@ app.use(
     credentials: true
   }),
 );
+
+// Parse JSON request body
 app.use(express.json());
 
 // Parse cookies (required for auth middleware to read JWT token)
 app.use(cookieParser());
+
+// Middleware untuk upload bukti pembayaran (multer)
+// Hanya untuk endpoint POST/PATCH /api/payments dengan field 'payment_proof'
+app.post('/api/payments', uploadMiddleware.single('payment_proof'));
+app.patch('/api/payments/:id', uploadMiddleware.single('payment_proof'));
 
 // Initialize DB (sync models)
 (async () => {
@@ -38,6 +48,9 @@ app.use(cookieParser());
     console.error('Database connection error:', err);
   }
 })();
+
+// Serve static files (uploaded images)
+app.use('/uploads', express.static('uploads'));
 
 app.use('/api', userRoutes);
 app.use('/api', shapeRoute);

@@ -27,6 +27,10 @@ const OrderItem = db.define(
       type: DataTypes.TEXT,
       allowNull: true,
     },
+    product_variant_id: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+    },
   },
   {
     tableName: "order_items",
