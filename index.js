@@ -13,6 +13,8 @@ import categoriesRoute from './routes/categoriesRoute.js';
 import customerRoute from './routes/customerRoutes.js';
 import rekeningRoute from './routes/rekeningRoutes.js';
 import orderRoute from './routes/orderRoutes.js';
+import materialRoute from './routes/materialRoutes.js';
+import expenseRoute from './routes/expenseRoutes.js';
 
 dotenv.config();
 
@@ -53,6 +55,8 @@ app.use('/api', categoriesRoute);
 app.use('/api', customerRoute);
 app.use('/api', rekeningRoute);
 app.use('/api', orderRoute);
+app.use('/api', materialRoute);
+app.use('/api', expenseRoute);
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
