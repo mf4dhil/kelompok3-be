@@ -12,7 +12,7 @@ import Size from '../models/size.js';
 const seed = async () => {
   try {
     await db.authenticate();
-    await db.sync({ force: true }); // force re-create tables with new schema
+    await db.sync(); // sync tanpa force: true agar aman dari foreign key constraint
 
     console.log('Starting seed...');
 
@@ -93,138 +93,49 @@ const seed = async () => {
 
     console.log('Shapes seeded');
 
-    // 5. Seed Sizes
+    // 5. Seed Sizes (ukuran fisik produk, bukan harga)
     const [sizeS, createdS] = await Size.findOrCreate({
-      where: { name: 'S', value: 65000, unit: 'rb' },
-      defaults: { name: 'S', value: 65000, unit: 'rb', is_active: true }
+      where: { name: '20 cm' },
+      defaults: { name: '20 cm', value: 20, unit: 'cm', is_active: true }
     });
 
     const [sizeM, createdM] = await Size.findOrCreate({
-      where: { name: 'M', value: 85000, unit: 'rb' },
-      defaults: { name: 'M', value: 85000, unit: 'rb', is_active: true }
+      where: { name: '24 cm' },
+      defaults: { name: '24 cm', value: 24, unit: 'cm', is_active: true }
     });
 
     const [sizeL, createdL] = await Size.findOrCreate({
-      where: { name: 'L', value: 125000, unit: 'rb' },
-      defaults: { name: 'L', value: 125000, unit: 'rb', is_active: true }
+      where: { name: '28 cm' },
+      defaults: { name: '28 cm', value: 28, unit: 'cm', is_active: true }
     });
 
     const [sizeXL, createdXL] = await Size.findOrCreate({
-      where: { name: 'XL', value: 185000, unit: 'rb' },
-      defaults: { name: 'XL', value: 185000, unit: 'rb', is_active: true }
+      where: { name: '30 cm' },
+      defaults: { name: '30 cm', value: 30, unit: 'cm', is_active: true }
     });
 
     console.log('Sizes seeded');
 
-    // 6. Seed Products with ProductVariants
-    // Product 1: Signature Classic (using typeSig)
-    const product1 = await Product.create({
-      name: 'Signature Classic',
-      slug: 'signature-classic',
-      description: 'Klasik favorit cita semua',
-      type_id: typeSig.id,
-      is_active: true,
-    });
+    // 6. Seed Products with ProductVariants (idempotent: findOrCreate)
+    const productsData = [
+      { name: 'Signature Classic', slug: 'signature-classic', description: 'Klasik favorit cita semua', type_id: typeSig.id, variant: { shape_id: shapeBulu.id, size_id: sizeS.id, flavor_id: flavorChoco.id, price: 89000 } },
+      { name: 'Rainbow Fondant', slug: 'rainbow-fondant', description: 'Hasil warna pelangi mewah', type_id: typeSig.id, variant: { shape_id: shapePersegi.id, size_id: sizeL.id, flavor_id: flavorMatcha.id, price: 125000 } },
+      { name: 'Kue Apel', slug: 'kue-apel', description: 'Pelapis renyah & isi manis', type_id: typeApel.id, variant: { shape_id: shapeBalok.id, size_id: sizeS.id, flavor_id: flavorStrawberry.id, price: 65000 } },
+      { name: 'Oreo Cream', slug: 'oreo-cream', description: 'Oreo garing & cream lembut', type_id: typeApel.id, variant: { shape_id: shapePersegi.id, size_id: sizeM.id, flavor_id: flavorChoco.id, price: 72000 } },
+      { name: 'Chocolate Hazelnut', slug: 'chocolate-hazelnut', description: 'Chocolate & hazelnut premium', type_id: typeChoco.id, variant: { shape_id: shapeBulu.id, size_id: sizeXL.id, flavor_id: flavorChoco.id, price: 95000 } },
+      { name: 'Red Velvet', slug: 'red-velvet', description: 'Velvet merah & cream cheese', type_id: typeMerah.id, variant: { shape_id: shapeBalok.id, size_id: sizeM.id, flavor_id: flavorVanilla.id, price: 88000 } },
+    ];
 
-    // Create variant with all required fields: shape_id, size_id, flavor_id, price, is_active
-    const variant1 = await ProductVariant.create({
-      product_id: product1.id,
-      shape_id: shapeBulu.id,
-      size_id: sizeS.id,
-      flavor_id: flavorChoco.id,
-      price: 89000,
-      is_active: true,
-    });
-
-    // Product 2: Rainbow Fondant
-    const product2 = await Product.create({
-      name: 'Rainbow Fondant',
-      slug: 'rainbow-fondant',
-      description: 'Hasil warna pelangi mewah',
-      type_id: typeSig.id,
-      is_active: true,
-    });
-
-    const variant2 = await ProductVariant.create({
-      product_id: product2.id,
-      shape_id: shapePersegi.id,
-      size_id: sizeL.id,
-      flavor_id: flavorMatcha.id,
-      price: 125000,
-      is_active: true,
-    });
-
-    // Product 3: Kue Apel (using typeApel)
-    const product3 = await Product.create({
-      name: 'Kue Apel',
-      slug: 'kue-apel',
-      description: 'Pelapis renyah & isi manis',
-      type_id: typeApel.id,
-      is_active: true,
-    });
-
-    const variant3 = await ProductVariant.create({
-      product_id: product3.id,
-      shape_id: shapeBalok.id,
-      size_id: sizeS.id,
-      flavor_id: flavorStrawberry.id,
-      price: 65000,
-      is_active: true,
-    });
-
-    // Product 4: Oreo Cream
-    const product4 = await Product.create({
-      name: 'Oreo Cream',
-      slug: 'oreo-cream',
-      description: 'Oreo garing & cream lembut',
-      type_id: typeApel.id,
-      is_active: true,
-    });
-
-    const variant4 = await ProductVariant.create({
-      product_id: product4.id,
-      shape_id: shapePersegi.id,
-      size_id: sizeM.id,
-      flavor_id: flavorChoco.id,
-      price: 72000,
-      is_active: true,
-    });
-
-    // Product 5: Chocolate Hazelnut (using typeChoco)
-    const product5 = await Product.create({
-      name: 'Chocolate Hazelnut',
-      slug: 'chocolate-hazelnut',
-      description: 'Chocolate & hazelnut premium',
-      type_id: typeChoco.id,
-      is_active: true,
-    });
-
-    const variant5 = await ProductVariant.create({
-      product_id: product5.id,
-      shape_id: shapeBulu.id,
-      size_id: sizeXL.id,
-      flavor_id: flavorChoco.id,
-      price: 95000,
-      is_active: true,
-    });
-
-    // Product 6: Red Velvet (using typeMerah)
-    const product6 = await Product.create({
-      name: 'Red Velvet',
-      slug: 'red-velvet',
-      description: 'Velvet merah & cream cheese',
-      type_id: typeMerah.id,
-      is_active: true,
-    });
-
-    const variant6 = await ProductVariant.create({
-      product_id: product6.id,
-      shape_id: shapeBalok.id,
-      size_id: sizeM.id,
-      flavor_id: flavorVanilla.id,
-      price: 88000,
-      is_active: true,
-    });
+    for (const pd of productsData) {
+      const [product] = await Product.findOrCreate({
+        where: { slug: pd.slug },
+        defaults: { name: pd.name, slug: pd.slug, description: pd.description, type_id: pd.type_id, is_active: true },
+      });
+      await ProductVariant.findOrCreate({
+        where: { product_id: product.id, shape_id: pd.variant.shape_id, size_id: pd.variant.size_id, flavor_id: pd.variant.flavor_id },
+        defaults: { ...pd.variant, product_id: product.id, is_active: true },
+      });
+    }
 
     console.log('Products and Variants seeded');
 

@@ -10,8 +10,9 @@ import sizeRoute from './routes/sizeRoute.js';
 import flavorRoute from './routes/flavorRoute.js';
 import typeRoute from './routes/typeRoute.js';
 import categoriesRoute from './routes/categoriesRoute.js';
-import customerRoute from './routes/customerRoute.js';
-import orderRoute from "./routes/orderRoute.js";
+import customerRoute from './routes/customerRoutes.js';
+import rekeningRoute from './routes/rekeningRoutes.js';
+import orderRoute from './routes/orderRoutes.js';
 
 dotenv.config();
 
@@ -22,6 +23,8 @@ app.use(
     credentials: true
   }),
 );
+
+// Parse JSON request body
 app.use(express.json());
 
 // Parse cookies (required for auth middleware to read JWT token)
@@ -38,6 +41,9 @@ app.use(cookieParser());
   }
 })();
 
+// Serve static files (uploaded images)
+app.use('/uploads', express.static('uploads'));
+
 app.use('/api', userRoutes);
 app.use('/api', shapeRoute);
 app.use('/api', sizeRoute);
@@ -45,7 +51,8 @@ app.use('/api', flavorRoute);
 app.use('/api', typeRoute);
 app.use('/api', categoriesRoute);
 app.use('/api', customerRoute);
-app.use("/api", orderRoute);
+app.use('/api', rekeningRoute);
+app.use('/api', orderRoute);
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {

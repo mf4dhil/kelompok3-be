@@ -1,36 +1,36 @@
 import { DataTypes } from "sequelize";
 import db from "../config/dababase.js";
 
-const Customer = db.define(
-  "customers",
+const Rekening = db.define(
+  "rekenings",
   {
     id: {
       type: DataTypes.INTEGER,
       primaryKey: true,
       autoIncrement: true,
     },
-    name: {
+    bank_name: {
+      type: DataTypes.STRING(50),
+      allowNull: false,
+    },
+    account_number: {
+      type: DataTypes.STRING(50),
+      allowNull: false,
+    },
+    account_name: {
       type: DataTypes.STRING(100),
       allowNull: false,
     },
-    phone: {
-      type: DataTypes.STRING(20),
-      allowNull: false,
-    },
-    email: {
-      type: DataTypes.STRING(100),
-      allowNull: true,
-    },
-    address: {
-      type: DataTypes.TEXT,
-      allowNull: true,
+    is_active: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: true,
     },
   },
   {
-    tableName: "customers",
+    tableName: "rekenings",
     timestamps: true,
     createdAt: "created_at",
     updatedAt: "updated_at",
   }
 );
-export default Customer;
+export default Rekening;

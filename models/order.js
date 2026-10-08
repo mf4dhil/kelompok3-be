@@ -1,136 +1,77 @@
 import { DataTypes } from "sequelize";
 import db from "../config/dababase.js";
-
-// const Order = db.define(
-//   "Order",
-//   {
-//     id: {
-//       type: DataTypes.INTEGER,
-//       autoIncrement: true,
-//       primaryKey: true,
-//     },
-
-//     customer_id: {
-//       type: DataTypes.INTEGER,
-//       allowNull: false,
-//     },
-
-//     order_number: {
-//       type: DataTypes.STRING(30),
-//       allowNull: false,
-//       unique: true,
-//     },
-
-//     order_date: {
-//       type: DataTypes.DATEONLY,
-//       allowNull: false,
-//     },
-
-//     pickup_date: {
-//       type: DataTypes.DATEONLY,
-//       allowNull: false,
-//     },
-
-//     status: {
-//       type: DataTypes.ENUM(
-//         "Pending",
-//         "Diproses",
-//         "Dibuat",
-//         "Selesai",
-//         "Diambil",
-//         "Dibatalkan"
-//       ),
-//       defaultValue: "Pending",
-//       allowNull: false,
-//     },
-
-//     notes: {
-//       type: DataTypes.TEXT,
-//       allowNull: true,
-//     },
-
-//     total_amount: {
-//       type: DataTypes.DECIMAL(12, 2),
-//       allowNull: false,
-//       defaultValue: 0,
-//     },
-//   },
-//   {
-//     tableName: "orders",
-//     timestamps: true,
-//   }
-// );
-
-// export default Order;
+import Customer from "./customer.js";
+import Rekening from "./rekening.js";
 
 const Order = db.define(
-  "Order",
+  "orders",
   {
     id: {
       type: DataTypes.INTEGER,
-      autoIncrement: true,
       primaryKey: true,
+      autoIncrement: true,
     },
-
-    customer_id: {
-      type: DataTypes.INTEGER,
-      allowNull: false,
-    },
-
     order_number: {
       type: DataTypes.STRING(30),
-      allowNull: false,
       unique: true,
+      allowNull: false,
     },
-
     order_date: {
-      type: DataTypes.DATEONLY,
+      type: DataTypes.DATE,
       allowNull: false,
+      defaultValue: DataTypes.NOW,
     },
-
     pickup_date: {
-      type: DataTypes.DATEONLY,
+      type: DataTypes.DATE,
       allowNull: false,
     },
-
     status: {
-      type: DataTypes.ENUM(
-        "Pending",
-        "Diproses",
-        "Dibuat",
-        "Selesai",
-        "Diambil",
-        "Dibatalkan"
-      ),
-      defaultValue: "Pending",
-      allowNull: false,
+      type: DataTypes.ENUM("pending", "processing", "ready", "completed", "cancelled"),
+      defaultValue: "pending",
     },
-
     notes: {
       type: DataTypes.TEXT,
       allowNull: true,
     },
-
+    total_amount: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+    },
+    payment_status: {
+      type: DataTypes.ENUM("unpaid", "partial", "paid"),
+      defaultValue: "unpaid",
+    },
+    // -- Moved payment related fields to payments table --
     // payment_method: {
-    //   type: DataTypes.ENUM("transfer", "cash"),
-    //   allowNull: false,
-    // },
-
-    // rekening_id: {
-    //   type: DataTypes.INTEGER,
+    //   type: DataTypes.ENUM("cash", "transfer"),
     //   allowNull: true,
     // },
-
-    total_amount: {
-      type: DataTypes.DECIMAL(12, 2),
-      allowNull: false,
-      defaultValue: 0,
+    // payment_proof: {
+    //   type: DataTypes.TEXT,
+    //   allowNull: true,
+    // },
+    // rekening_id masih dipertahankan di Order untuk referensi utama (optional)
+    rekening_id: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
     },
   },
   {
     tableName: "orders",
     timestamps: true,
+    createdAt: "created_at",
+    updatedAt: "updated_at",
   }
 );
+
+// Relation: Order belongsTo Customer
+Order.belongsTo(Customer, { foreignKey: "customer_id" });
+// Relation: Customer hasMany Order
+Customer.hasMany(Order, { foreignKey: "customer_id" });
+
+// Relation: Order belongsTo Rekening (optional)
+Order.belongsTo(Rekening, { foreignKey: "rekening_id", as: "rekening" });
+// Relation: Rekening hasMany Order
+Rekening.hasMany(Order, { foreignKey: "rekening_id", as: "orders" });
 
 export default Order;

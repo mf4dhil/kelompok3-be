@@ -1,38 +1,23 @@
 import Customer from "./customer.js";
+import Rekening from "./rekening.js";
 import Order from "./order.js";
-import OrderItem from "./orderitems.js";
-import ProductVariant from "./productvariants.js";
+import OrderItem from "./order_item.js";
+import Payment from "./payment.js";
 
-// Customer -> Order
-Customer.hasMany(Order, {
-  foreignKey: "customer_id",
-});
-
-Order.belongsTo(Customer, {
-  foreignKey: "customer_id",
-});
-
-// Order -> OrderItem
-Order.hasMany(OrderItem, {
-  foreignKey: "order_id",
-});
-
-OrderItem.belongsTo(Order, {
-  foreignKey: "order_id",
-});
-
-// ProductVariant -> OrderItem
-ProductVariant.hasMany(OrderItem, {
-  foreignKey: "product_variant_id",
-});
-
-OrderItem.belongsTo(ProductVariant, {
-  foreignKey: "product_variant_id",
-});
+// Import existing models if needed or ensure they are imported
+import "./product.js";
+import "./productvariants.js";
+import "./categories.js";
+import "./type.js";
+import "./shape.js";
+import "./size.js";
+import "./flavors.js";
+import "./user.model.js";
 
 export {
   Customer,
+  Rekening,
   Order,
   OrderItem,
-  ProductVariant,
+  Payment,
 };

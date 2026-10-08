@@ -1,0 +1,134 @@
+==================================================
+DOKUMENTASI FITUR BARU: CUSTOMERS, REKENINGS, ORDERS, ORDER_ITEMS
+==================================================
+
+BASE URL: http://localhost:3000/api
+Prefix route: /api/v1 (tidak ditulis di sini, sudah termasuk di dalam route)
+
+--------------------------------------------------
+1. CUSTOMERS: `/customers`
+--------------------------------------------------
+
+Endpoint               | Method | Deskripsi
+-----------------------|--------|---------------------------------------------
+GET /customers           | GET    | List customer dengan pagination & search
+GET /customers/:id       | GET    | Detail customer berdasarkan ID
+POST /customers          | POST   | Buat customer baru
+PATCH /customers/:id     | PATCH  | Update customer
+DELETE /customers/:id    | DELETE | Hapus customer (GAGAL jika masih punya order)
+
+Parameter Pagination:
+- page: halaman (default: 1)
+- limit: data per halaman (default: 10)
+
+Parameter Search:
+- search: filter berdasarkan name atau phone
+
+Validasi Delete:
+- Return 409 dengan pesan "Customer gagal dihapus. Customer masih memiliki order."
+
+---
+
+2. REKENINGS: `/rekenings`
+--------------------------------------------------
+
+Endpoint               | Method | Deskripsi
+-----------------------|--------|---------------------------------------------
+GET /rekenings           | GET    | List rekening (opsional filter is_active=true)
+GET /rekenings/:id       | GET    | Detail rekening
+POST /rekenings          | POST   | Buat rekening baru
+PATCH /rekenings/:id     | PATCH  | Update rekening
+DELETE /rekenings/:id    | DELETE | Hapus rekening (GAGAL jika sudah dipakai order)
+                  |        | Sarankan: gunah is_active=false sebagai gantinya
+
+Validasi Delete:
+- Jika sudah pernah dipakai order: return 409 dengan pesan
+  "Rekening gagal dihapus karena sudah dipakai di order. Sebagai gantinya,
+   nonaktifkan rekening dengan mengubah is_active menjadi false."
+
+---
+
+3. ORDERS: `/orders`
+--------------------------------------------------
+
+Endpoint                 | Method | Deskripsi
+------------------------|--------|---------------------------------------------
+GET /orders               | GET    | List order dengan pagination + filter
+GET /orders/:id           | GET    | Detail order lengkap (customer, items, product variant, rekening)
+POST /orders              | POST   | Buat order + order items (dalam transaction)
+PATCH /orders/:id         | PATCH  | Update data order (notes, pickup_date, dll)
+                      |        | TIDAK BOLEH ubah total_amount
+PATCH /orders/:id/status  | PATCH  | Update status order
+PATCH /orders/:id/payment | PATCH  | Update payment_status, payment_method, rekening_id, payment_proof
+DELETE /orders/:id        | DELETE | Hapus order + items (dalam transaction)
+
+Filter GET /orders:
+- status: ENUM [pending, processing, ready, completed, cancelled]
+- payment_status: ENUM [unpaid, partial, paid]
+- customer_id: UUID (format validated)
+- pickup_date: DATE (format YYYY-MM-DD)
+- order_date_start / order_date_end: rentang tanggal
+
+Validasi Penting (dibuat saat POST /orders):
+1. Customer must exist.
+2. Semua product_variant_id di items harus ada di database.
+3. Quantity harus integer >= 1.
+4. Items minimal 1.
+5. Jika payment_method = transfer, maka rekening_id wajib diisi dan rekening must be is_active=true.
+6. pickup_date wajib diisi dan >= hari ini.
+7. Harga (price) diambil dari database (ProductVariant), BUKAN dari request body.
+8. order_number dibuat otomatis (format ORD-YYYYMMDD-XXXX).
+9. total_amount dihitung dari: jumlah (quantity * price tiap item).
+
+---
+
+4. ORDER_ITEMS: Dikelola lewat Orders (tidak ada endpoint terpisah)
+--------------------------------------------------
+
+OrderItem tidak memiliki endpoint sendiri. Items hanya dibuat saat membuat
+order (POST /orders) dan bisa diupdate saat update order (PATCH /orders/:id).
+
+Field order_items:
+- id, quantity, price, subtotal, notes, created_at, updated_at
+- order_id (FK ke orders)
+- product_variant_id (FK ke product_variants)
+
+---
+
+RELASI DATABASE:
+- Customer hasMany Order; Order belongsTo Customer
+- Order hasMany OrderItem; OrderItem belongsTo Order
+- OrderItem belongsTo ProductVariant
+- Order belongsTo Rekening (optional); Rekening hasMany Order
+
+ENUM VALUES:
+- orders.status: [pending, processing, ready, completed, cancelled]
+- orders.payment_status: [unpaid, partial, paid]
+- orders.payment_method: [cash, transfer]
+
+STATUS KODE RESPONSE:
+- 200: OK
+- 201: Created
+- 400: Bad Request (validasi error)
+- 404: Not Found
+- 409: Conflict (data sudah ada / tidak bisa dihapus)
+
+FILE YANG DIBUAT BARU:
+- models/customer.js
+- models/rekening.js
+- models/order.js
+- models/order_item.js
+- controllers/customerController.js
+- controllers/rekeningController.js
+- controllers/orderController.js
+- routes/customerRoutes.js
+- routes/rekeningRoutes.js
+- routes/orderRoutes.js
+
+FILE YANG DIBUAT ULANG (sudah ada):
+- models/index.models.js (dihubungkan model baru)
+- index.js (route terdaftar)
+
+TIDAK DILAKUKAN:
+- Penambahan package baru (tidak ada uuid dependency)
+- Modifikasi file lama yang tidak berkaitan
