@@ -98,7 +98,7 @@ export const getOrderById = async (req, res) => {
 export const createOrder = async (req, res) => {
   const t = await db.transaction();
   try {
-    const { customer_id, pickup_date, notes, items, payment_method, rekening_id } = req.body;
+    const { customer_id, pickup_date, notes, payment_method, payment_option = "full", rekening_id, items } = req.body;
 
     // Validasi input
     if (!customer_id || !pickup_date || !items || !Array.isArray(items) || items.length === 0) {
@@ -139,6 +139,11 @@ export const createOrder = async (req, res) => {
           message: "Rekening tidak ditemukan atau tidak aktif",
         });
       }
+    }
+
+    if (!["full", "partial"].includes(payment_option)) {
+      await t.rollback();
+      return res.status(400).json({ message: "payment_option harus full atau partial" });
     }
 
     // Proses items: ambil harga dari DB, jangan percaya harga dari client
@@ -213,6 +218,29 @@ export const createOrder = async (req, res) => {
         )
       )
     );
+
+    // Pembayaran cash pada saat order dibuat langsung tercatat sebagai terverifikasi.
+    if (payment_method === "cash") {
+      const isFullPayment = payment_option === "full";
+      const paymentAmount = isFullPayment ? totalAmount : Math.ceil(totalAmount * 0.5);
+
+      await Payment.create(
+        {
+          order_id: order.id,
+          amount: paymentAmount,
+          payment_method: "cash",
+          payment_type: isFullPayment ? "full" : "partial",
+          status: "verified",
+          paid_at: new Date(),
+        },
+        { transaction: t }
+      );
+
+      await order.update(
+        { payment_status: isFullPayment ? "paid" : "partial" },
+        { transaction: t }
+      );
+    }
 
     await t.commit();
 
