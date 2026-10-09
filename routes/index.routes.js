@@ -16,6 +16,7 @@ router.post('/resetPassword', authController.resetPassword);
 // User routes - admin can edit any user, user can edit own profile
 router.get('/users', authMiddleware, adminMiddleware, userController.getAllUsers); // maybe not needed, but for reference
 router.put('/user/edit/:id', authMiddleware, adminMiddleware, userController.editUserByAdmin);
+router.delete('/user/:id', authMiddleware, adminMiddleware, userController.deleteUser);
 router.put('/profile/edit', authMiddleware, userController.editProfileSelf);
 
 // Product routes - admin can manage all products

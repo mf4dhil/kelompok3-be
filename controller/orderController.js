@@ -1,11 +1,12 @@
-import Order from '../models/order.js';
-import OrderItem from '../models/order_item.js';
-import Customer from '../models/customer.js';
-import ProductVariant from '../models/productvariants.js';
-import Rekening from '../models/rekening.js';
-import Payment from '../models/payment.js';
-import db from '../config/dababase.js';
-import { Op } from 'sequelize';
+import Order from "../models/order.js";
+import OrderItem from "../models/order_item.js";
+import Customer from "../models/customer.js";
+import ProductVariant from "../models/productvariants.js";
+import Rekening from "../models/rekening.js";
+import Payment from "../models/payment.js";
+import db from "../config/dababase.js";
+import { Op } from "sequelize";
+import Product from "../models/product.js";
 
 // Helper: Generate unique order number (format ORD-YYYYMMDD-XXXX)
 const generateOrderNumber = async () => {
@@ -26,8 +27,14 @@ const generateOrderNumber = async () => {
 
 export const getOrders = async (req, res) => {
   try {
-    const { status, payment_status, customer_id, pickup_date, order_date_start, order_date_end } = req.query;
-
+    const {
+      status,
+      payment_status,
+      customer_id,
+      pickup_date,
+      order_date_start,
+      order_date_end,
+    } = req.query;
     const where = {};
 
     if (status) where.status = status;
@@ -43,11 +50,11 @@ export const getOrders = async (req, res) => {
     const { count, rows } = await Order.findAndCountAll({
       where,
       include: [
-        { model: Customer, attributes: ['id', 'name', 'phone', 'email'] },
+        { model: Customer, attributes: ["id", "name", "phone", "email", "address" ]},
         { model: OrderItem, include: [{ model: ProductVariant }] },
         { model: Rekening, as: 'rekening' },
       ],
-      order: [['order_date', 'DESC']],
+      order: [["order_date", "DESC"]],
     });
 
     res.json({
@@ -65,10 +72,10 @@ export const getOrderById = async (req, res) => {
 
     const data = await Order.findByPk(id, {
       include: [
-        { model: Customer, attributes: ['id', 'name', 'phone', 'email', 'address'] },
-        { model: OrderItem, include: [{ model: ProductVariant }] },
-        { model: Rekening, as: 'rekening' },
-        { model: Payment, as: 'payments', include: [{ model: Rekening, as: 'rekening' }], separate: true, order: [['created_at', 'DESC']] },
+        { model: Customer, attributes: ["id", "name", "phone", "email", "address"] },
+        { model: OrderItem, include: [{ model: ProductVariant, include: [{model:Product}] }] },
+        { model: Rekening, as: "rekening" },
+        { model: Payment, as: "payments", include: [{ model: Rekening, as: "rekening" }], separate: true, order: [["created_at", "DESC"]] },
       ],
     });
 
