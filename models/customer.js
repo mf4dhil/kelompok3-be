@@ -18,11 +18,11 @@ const Customer = db.define(
       allowNull: false,
     },
     email: {
-      type: DataTypes.STRING(100),
+      type: DataTypes.STRING(30),
       allowNull: true,
     },
     address: {
-      type: DataTypes.TEXT,
+      type: DataTypes.STRING(100),
       allowNull: true,
     },
   },

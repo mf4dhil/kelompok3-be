@@ -6,6 +6,7 @@ import Rekening from "../models/rekening.js";
 import Payment from "../models/payment.js";
 import db from "../config/dababase.js";
 import { Op } from "sequelize";
+import Product from "../models/product.js";
 
 // Helper: Generate unique order number (format ORD-YYYYMMDD-XXXX)
 const generateOrderNumber = async () => {
@@ -27,8 +28,6 @@ const generateOrderNumber = async () => {
 export const getOrders = async (req, res) => {
   try {
     const {
-      page = 1,
-      limit = 10,
       status,
       payment_status,
       customer_id,
@@ -36,7 +35,6 @@ export const getOrders = async (req, res) => {
       order_date_start,
       order_date_end,
     } = req.query;
-    const offset = (parseInt(page) - 1) * parseInt(limit);
     const where = {};
 
     if (status) where.status = status;
@@ -52,19 +50,15 @@ export const getOrders = async (req, res) => {
     const { count, rows } = await Order.findAndCountAll({
       where,
       include: [
-        { model: Customer, attributes: ["id", "name", "phone", "email"] },
+        { model: Customer, attributes: ["id", "name", "phone", "email", "address" ]},
         { model: OrderItem, include: [{ model: ProductVariant }] },
         { model: Rekening, as: "rekening" },
       ],
-      limit: parseInt(limit),
-      offset,
       order: [["order_date", "DESC"]],
     });
 
     res.json({
       data: rows,
-      currentPage: parseInt(page),
-      totalPages: Math.ceil(count / parseInt(limit)),
       totalItems: count,
     });
   } catch (error) {
@@ -79,7 +73,7 @@ export const getOrderById = async (req, res) => {
     const data = await Order.findByPk(id, {
       include: [
         { model: Customer, attributes: ["id", "name", "phone", "email", "address"] },
-        { model: OrderItem, include: [{ model: ProductVariant }] },
+        { model: OrderItem, include: [{ model: ProductVariant, include: [{model:Product}] }] },
         { model: Rekening, as: "rekening" },
         { model: Payment, as: "payments", include: [{ model: Rekening, as: "rekening" }], separate: true, order: [["created_at", "DESC"]] },
       ],
