@@ -1,11 +1,11 @@
-import Order from "../models/order.js";
-import OrderItem from "../models/order_item.js";
-import Customer from "../models/customer.js";
-import ProductVariant from "../models/productvariants.js";
-import Rekening from "../models/rekening.js";
-import Payment from "../models/payment.js";
-import db from "../config/dababase.js";
-import { Op } from "sequelize";
+import Order from '../models/order.js';
+import OrderItem from '../models/order_item.js';
+import Customer from '../models/customer.js';
+import ProductVariant from '../models/productvariants.js';
+import Rekening from '../models/rekening.js';
+import Payment from '../models/payment.js';
+import db from '../config/dababase.js';
+import { Op } from 'sequelize';
 
 // Helper: Generate unique order number (format ORD-YYYYMMDD-XXXX)
 const generateOrderNumber = async () => {
@@ -13,10 +13,10 @@ const generateOrderNumber = async () => {
   let exists = true;
   while (exists) {
     const date = new Date();
-    const dateStr = date.toISOString().slice(0, 10).replace(/-/g, "");
+    const dateStr = date.toISOString().slice(0, 10).replace(/-/g, '');
     const randomStr = Math.floor(Math.random() * 10000)
       .toString()
-      .padStart(4, "0");
+      .padStart(4, '0');
     orderNumber = `ORD-${dateStr}-${randomStr}`;
     const count = await Order.count({ where: { order_number: orderNumber } });
     exists = count > 0;
@@ -26,17 +26,8 @@ const generateOrderNumber = async () => {
 
 export const getOrders = async (req, res) => {
   try {
-    const {
-      page = 1,
-      limit = 10,
-      status,
-      payment_status,
-      customer_id,
-      pickup_date,
-      order_date_start,
-      order_date_end,
-    } = req.query;
-    const offset = (parseInt(page) - 1) * parseInt(limit);
+    const { status, payment_status, customer_id, pickup_date, order_date_start, order_date_end } = req.query;
+
     const where = {};
 
     if (status) where.status = status;
@@ -52,19 +43,15 @@ export const getOrders = async (req, res) => {
     const { count, rows } = await Order.findAndCountAll({
       where,
       include: [
-        { model: Customer, attributes: ["id", "name", "phone", "email"] },
+        { model: Customer, attributes: ['id', 'name', 'phone', 'email'] },
         { model: OrderItem, include: [{ model: ProductVariant }] },
-        { model: Rekening, as: "rekening" },
+        { model: Rekening, as: 'rekening' },
       ],
-      limit: parseInt(limit),
-      offset,
-      order: [["order_date", "DESC"]],
+      order: [['order_date', 'DESC']],
     });
 
     res.json({
       data: rows,
-      currentPage: parseInt(page),
-      totalPages: Math.ceil(count / parseInt(limit)),
       totalItems: count,
     });
   } catch (error) {
@@ -78,15 +65,15 @@ export const getOrderById = async (req, res) => {
 
     const data = await Order.findByPk(id, {
       include: [
-        { model: Customer, attributes: ["id", "name", "phone", "email", "address"] },
+        { model: Customer, attributes: ['id', 'name', 'phone', 'email', 'address'] },
         { model: OrderItem, include: [{ model: ProductVariant }] },
-        { model: Rekening, as: "rekening" },
-        { model: Payment, as: "payments", include: [{ model: Rekening, as: "rekening" }], separate: true, order: [["created_at", "DESC"]] },
+        { model: Rekening, as: 'rekening' },
+        { model: Payment, as: 'payments', include: [{ model: Rekening, as: 'rekening' }], separate: true, order: [['created_at', 'DESC']] },
       ],
     });
 
     if (!data) {
-      return res.status(404).json({ message: "Order tidak ditemukan" });
+      return res.status(404).json({ message: 'Order tidak ditemukan' });
     }
 
     res.json(data);
@@ -98,13 +85,13 @@ export const getOrderById = async (req, res) => {
 export const createOrder = async (req, res) => {
   const t = await db.transaction();
   try {
-    const { customer_id, pickup_date, notes, payment_method, payment_option = "full", rekening_id, items } = req.body;
+    const { customer_id, pickup_date, notes, payment_method, payment_option = 'full', rekening_id, items } = req.body;
 
     // Validasi input
     if (!customer_id || !pickup_date || !items || !Array.isArray(items) || items.length === 0) {
       await t.rollback();
       return res.status(400).json({
-        message: "customer_id, pickup_date, dan items (array minimal 1) wajib diisi",
+        message: 'customer_id, pickup_date, dan items (array minimal 1) wajib diisi',
       });
     }
 
@@ -112,7 +99,7 @@ export const createOrder = async (req, res) => {
     const customer = await Customer.findByPk(customer_id, { transaction: t });
     if (!customer) {
       await t.rollback();
-      return res.status(404).json({ message: "Customer tidak ditemukan" });
+      return res.status(404).json({ message: 'Customer tidak ditemukan' });
     }
 
     // Cek pickup_date tidak boleh sebelum hari ini
@@ -121,29 +108,29 @@ export const createOrder = async (req, res) => {
     today.setHours(0, 0, 0, 0);
     if (pickupDate < today) {
       await t.rollback();
-      return res.status(400).json({ message: "Pickup date tidak boleh sebelum hari ini" });
+      return res.status(400).json({ message: 'Pickup date tidak boleh sebelum hari ini' });
     }
 
     // Validasi payment_method dan rekening_id
-    if (payment_method === "transfer") {
+    if (payment_method === 'transfer') {
       if (!rekening_id) {
         await t.rollback();
         return res.status(400).json({
-          message: "rekening_id wajib diisi jika payment_method adalah transfer",
+          message: 'rekening_id wajib diisi jika payment_method adalah transfer',
         });
       }
       const rekening = await Rekening.findByPk(rekening_id, { transaction: t });
       if (!rekening || !rekening.is_active) {
         await t.rollback();
         return res.status(400).json({
-          message: "Rekening tidak ditemukan atau tidak aktif",
+          message: 'Rekening tidak ditemukan atau tidak aktif',
         });
       }
     }
 
-    if (!["full", "partial"].includes(payment_option)) {
+    if (!['full', 'partial'].includes(payment_option)) {
       await t.rollback();
-      return res.status(400).json({ message: "payment_option harus full atau partial" });
+      return res.status(400).json({ message: 'payment_option harus full atau partial' });
     }
 
     // Proses items: ambil harga dari DB, jangan percaya harga dari client
@@ -154,14 +141,14 @@ export const createOrder = async (req, res) => {
       if (!item.product_variant_id || !item.quantity) {
         await t.rollback();
         return res.status(400).json({
-          message: "Setiap item harus memiliki product_variant_id dan quantity",
+          message: 'Setiap item harus memiliki product_variant_id dan quantity',
         });
       }
 
       if (!Number.isInteger(item.quantity) || item.quantity < 1) {
         await t.rollback();
         return res.status(400).json({
-          message: "Quantity harus bilangan bulat >= 1",
+          message: 'Quantity harus bilangan bulat >= 1',
         });
       }
 
@@ -200,10 +187,10 @@ export const createOrder = async (req, res) => {
         total_amount: totalAmount,
         payment_method: payment_method || null,
         rekening_id: rekening_id || null,
-        status: "pending",
-        payment_status: "unpaid",
+        status: 'pending',
+        payment_status: 'unpaid',
       },
-      { transaction: t }
+      { transaction: t },
     );
 
     // Buat order items
@@ -214,47 +201,40 @@ export const createOrder = async (req, res) => {
             order_id: order.id,
             ...item,
           },
-          { transaction: t }
-        )
-      )
+          { transaction: t },
+        ),
+      ),
     );
 
     // Pembayaran cash pada saat order dibuat langsung tercatat sebagai terverifikasi.
-    if (payment_method === "cash") {
-      const isFullPayment = payment_option === "full";
+    if (payment_method === 'cash') {
+      const isFullPayment = payment_option === 'full';
       const paymentAmount = isFullPayment ? totalAmount : Math.ceil(totalAmount * 0.5);
 
       await Payment.create(
         {
           order_id: order.id,
           amount: paymentAmount,
-          payment_method: "cash",
-          payment_type: isFullPayment ? "full" : "partial",
-          status: "verified",
+          payment_method: 'cash',
+          payment_type: isFullPayment ? 'full' : 'partial',
+          status: 'verified',
           paid_at: new Date(),
         },
-        { transaction: t }
+        { transaction: t },
       );
 
-      await order.update(
-        { payment_status: isFullPayment ? "paid" : "partial" },
-        { transaction: t }
-      );
+      await order.update({ payment_status: isFullPayment ? 'paid' : 'partial' }, { transaction: t });
     }
 
     await t.commit();
 
     // Fetch lengkap dengan include
     const orderFull = await Order.findByPk(order.id, {
-      include: [
-        { model: Customer },
-        { model: OrderItem, include: [{ model: ProductVariant }] },
-        { model: Rekening, as: "rekening" },
-      ],
+      include: [{ model: Customer }, { model: OrderItem, include: [{ model: ProductVariant }] }, { model: Rekening, as: 'rekening' }],
     });
 
     res.status(201).json({
-      message: "Order berhasil dibuat",
+      message: 'Order berhasil dibuat',
       data: orderFull,
     });
   } catch (error) {
@@ -269,7 +249,7 @@ export const updateOrder = async (req, res) => {
 
     const order = await Order.findByPk(id);
     if (!order) {
-      return res.status(404).json({ message: "Order tidak ditemukan" });
+      return res.status(404).json({ message: 'Order tidak ditemukan' });
     }
 
     const { notes, pickup_date } = req.body;
@@ -277,7 +257,7 @@ export const updateOrder = async (req, res) => {
     // Jangan izinkan ubah total_amount langsung
     if (req.body.total_amount !== undefined) {
       return res.status(400).json({
-        message: "total_amount tidak boleh diubah langsung",
+        message: 'total_amount tidak boleh diubah langsung',
       });
     }
 
@@ -287,7 +267,7 @@ export const updateOrder = async (req, res) => {
       today.setHours(0, 0, 0, 0);
       if (pickupDate < today) {
         return res.status(400).json({
-          message: "Pickup date tidak boleh sebelum hari ini",
+          message: 'Pickup date tidak boleh sebelum hari ini',
         });
       }
     }
@@ -298,15 +278,11 @@ export const updateOrder = async (req, res) => {
     });
 
     const updatedOrder = await Order.findByPk(id, {
-      include: [
-        { model: Customer },
-        { model: OrderItem, include: [{ model: ProductVariant }] },
-        { model: Rekening, as: "rekening" },
-      ],
+      include: [{ model: Customer }, { model: OrderItem, include: [{ model: ProductVariant }] }, { model: Rekening, as: 'rekening' }],
     });
 
     res.json({
-      message: "Order berhasil diperbarui",
+      message: 'Order berhasil diperbarui',
       data: updatedOrder,
     });
   } catch (error) {
@@ -320,18 +296,18 @@ export const updateOrderStatus = async (req, res) => {
     const { status } = req.body;
 
     if (!status) {
-      return res.status(400).json({ message: "status wajib diisi" });
+      return res.status(400).json({ message: 'status wajib diisi' });
     }
 
     const order = await Order.findByPk(id);
     if (!order) {
-      return res.status(404).json({ message: "Order tidak ditemukan" });
+      return res.status(404).json({ message: 'Order tidak ditemukan' });
     }
 
     await order.update({ status });
 
     res.json({
-      message: "Order status berhasil diperbarui",
+      message: 'Order status berhasil diperbarui',
       data: order,
     });
   } catch (error) {
@@ -346,22 +322,22 @@ export const updateOrderPayment = async (req, res) => {
 
     const order = await Order.findByPk(id);
     if (!order) {
-      return res.status(404).json({ message: "Order tidak ditemukan" });
+      return res.status(404).json({ message: 'Order tidak ditemukan' });
     }
 
     // Validasi jika payment_method adalah transfer
     const method = payment_method || order.payment_method;
-    if (method === "transfer") {
+    if (method === 'transfer') {
       const rekeningId = rekening_id || order.rekening_id;
       if (!rekeningId) {
         return res.status(400).json({
-          message: "rekening_id wajib diisi jika payment_method adalah transfer",
+          message: 'rekening_id wajib diisi jika payment_method adalah transfer',
         });
       }
       const rekening = await Rekening.findByPk(rekeningId);
       if (!rekening || !rekening.is_active) {
         return res.status(400).json({
-          message: "Rekening tidak ditemukan atau tidak aktif",
+          message: 'Rekening tidak ditemukan atau tidak aktif',
         });
       }
     }
@@ -374,15 +350,11 @@ export const updateOrderPayment = async (req, res) => {
     });
 
     const updatedOrder = await Order.findByPk(id, {
-      include: [
-        { model: Customer },
-        { model: OrderItem },
-        { model: Rekening, as: "rekening" },
-      ],
+      include: [{ model: Customer }, { model: OrderItem }, { model: Rekening, as: 'rekening' }],
     });
 
     res.json({
-      message: "Order payment berhasil diperbarui",
+      message: 'Order payment berhasil diperbarui',
       data: updatedOrder,
     });
   } catch (error) {
@@ -398,7 +370,7 @@ export const deleteOrder = async (req, res) => {
     const order = await Order.findByPk(id, { transaction: t });
     if (!order) {
       await t.rollback();
-      return res.status(404).json({ message: "Order tidak ditemukan" });
+      return res.status(404).json({ message: 'Order tidak ditemukan' });
     }
 
     // Hapus order items terlebih dahulu, lalu order, dalam satu transaction
@@ -408,7 +380,7 @@ export const deleteOrder = async (req, res) => {
     await t.commit();
 
     res.json({
-      message: "Order dan semua items berhasil dihapus",
+      message: 'Order dan semua items berhasil dihapus',
     });
   } catch (error) {
     await t.rollback();
