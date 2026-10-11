@@ -1,5 +1,4 @@
 import express from 'express';
-import dotenv from 'dotenv';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import db from './config/dababase.js';
@@ -15,14 +14,13 @@ import rekeningRoute from './routes/rekeningRoutes.js';
 import orderRoute from './routes/orderRoutes.js';
 import materialRoute from './routes/materialRoutes.js';
 import expenseRoute from './routes/expenseRoutes.js';
-
-dotenv.config();
+import reportRoute from './routes/reportRoutes.js';
 
 const app = express();
 app.use(
   cors({
-    origin: 'http://localhost:5173',
-    credentials: true
+    origin: process.env.CLIENT_ORIGIN || 'http://localhost:5173',
+    credentials: true,
   }),
 );
 
@@ -57,6 +55,7 @@ app.use('/api', rekeningRoute);
 app.use('/api', orderRoute);
 app.use('/api', materialRoute);
 app.use('/api', expenseRoute);
+app.use('/api', reportRoute);
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {

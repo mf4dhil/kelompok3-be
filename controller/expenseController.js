@@ -1,6 +1,7 @@
 import Expense from "../models/expense.js";
 import ExpenseCategory from "../models/expense_category.js";
-import db from "../config/dababase.js";
+import { Op } from "sequelize";
+import { getPagination, getPaginationMeta } from "../utils/pagination.js";
 
 // Generate nomor expense: EXP-YYYYMMDD-XXXXX
 const generateExpenseNumber = () => {
@@ -12,26 +13,24 @@ const generateExpenseNumber = () => {
 export const getExpenses = async (req, res) => {
   try {
     const { page = 1, limit = 20, category_id, start_date, end_date } = req.query;
-    const offset = (parseInt(page) - 1) * parseInt(limit);
+    const pagination = getPagination(page, limit);
 
     const where = {};
     if (category_id) where.category_id = category_id;
-    if (start_date) where.expense_date = { ...where.expense_date, [db.Sequelize.Op.gte]: start_date };
-    if (end_date) where.expense_date = { ...where.expense_date, [db.Sequelize.Op.lte]: end_date };
+    if (start_date) where.expense_date = { ...where.expense_date, [Op.gte]: start_date };
+    if (end_date) where.expense_date = { ...where.expense_date, [Op.lte]: end_date };
 
     const { count, rows } = await Expense.findAndCountAll({
       where,
       include: [{ model: ExpenseCategory, as: "category", attributes: ["id", "name"] }],
       order: [["expense_date", "DESC"]],
-      limit: parseInt(limit),
-      offset,
+      limit: pagination.pageSize,
+      offset: pagination.offset,
     });
 
     res.json({
       data: rows,
-      currentPage: parseInt(page),
-      totalPages: Math.ceil(count / parseInt(limit)),
-      totalItems: count,
+      ...getPaginationMeta(count, pagination.currentPage, pagination.pageSize),
     });
   } catch (error) {
     res.status(500).json({ message: error.message });

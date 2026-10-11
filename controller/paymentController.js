@@ -2,16 +2,44 @@ import Payment from "../models/payment.js";
 import Order from "../models/order.js";
 import Rekening from "../models/rekening.js";
 import db from "../config/dababase.js";
+import { Op } from "sequelize";
+import { getPagination, getPaginationMeta } from "../utils/pagination.js";
+import { isValidDateOnly } from "../utils/dateValidation.js";
 
 // GET /payments - List semua payments (dengan filter order_id, status)
 export const getPayments = async (req, res) => {
   try {
-    const { page = 1, limit = 10, order_id, status } = req.query;
-    const offset = (parseInt(page) - 1) * parseInt(limit);
+    const { page = 1, limit = 10, order_id, status, payment_method, start_date, end_date } = req.query;
+    const pagination = getPagination(page, limit);
     const where = {};
 
     if (order_id) where.order_id = order_id;
     if (status) where.status = status;
+    if (payment_method) where.payment_method = payment_method;
+    if (!isValidDateOnly(start_date) || !isValidDateOnly(end_date)) {
+      return res.status(400).json({ message: "Tanggal harus menggunakan format YYYY-MM-DD" });
+    }
+    if (start_date && end_date && start_date > end_date) {
+      return res.status(400).json({ message: "Tanggal awal tidak boleh melewati tanggal akhir" });
+    }
+    if (start_date || end_date) {
+      const paidAtRange = {};
+      const createdAtRange = {};
+      if (start_date) {
+        paidAtRange[Op.gte] = `${start_date} 00:00:00`;
+        createdAtRange[Op.gte] = `${start_date} 00:00:00`;
+      }
+      if (end_date) {
+        paidAtRange[Op.lte] = `${end_date} 23:59:59.999`;
+        createdAtRange[Op.lte] = `${end_date} 23:59:59.999`;
+      }
+      where[Op.and] = [{
+        [Op.or]: [
+          { status: "verified", [Op.or]: [{ paid_at: paidAtRange }, { paid_at: null, created_at: createdAtRange }] },
+          { status: { [Op.ne]: "verified" }, created_at: createdAtRange },
+        ],
+      }];
+    }
 
     const { count, rows } = await Payment.findAndCountAll({
       where,
@@ -19,16 +47,14 @@ export const getPayments = async (req, res) => {
         { model: Order, attributes: ["id", "order_number", "total_amount", "payment_status"] },
         { model: Rekening, as: "rekening", attributes: ["id", "bank_name", "account_number"] },
       ],
-      limit: parseInt(limit),
-      offset,
+      limit: pagination.pageSize,
+      offset: pagination.offset,
       order: [["created_at", "DESC"]],
     });
 
     res.json({
       data: rows,
-      currentPage: parseInt(page),
-      totalPages: Math.ceil(count / parseInt(limit)),
-      totalItems: count,
+      ...getPaginationMeta(count, pagination.currentPage, pagination.pageSize),
     });
   } catch (error) {
     res.status(500).json({ message: error.message });

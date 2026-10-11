@@ -3,20 +3,24 @@ import Shape from '../models/shape.js';
 import Size from '../models/size.js';
 import Flavor from '../models/flavors.js';
 import ProductVariant from '../models/productvariants.js';
+import OrderItem from '../models/order_item.js';
 import { Op } from 'sequelize';
+import { getVariantCombinationKey, getVariantValidationError } from '../utils/productVariantValidation.js';
+
+const productIncludes = [{
+  model: ProductVariant,
+  as: 'productvariants',
+  include: [
+    { model: Shape, as: 'shape' },
+    { model: Size, as: 'size' },
+    { model: Flavor, as: 'flavor' },
+  ],
+}];
 
 export const getProducts = async (req, res) => {
   try {
     const products = await Product.findAll({
-      include: [{
-        model: ProductVariant,
-        as: 'productvariants',
-        include: [
-          { model: Shape, as: 'shape' },
-          { model: Size, as: 'size' },
-          { model: Flavor, as: 'flavor' },
-        ],
-      }],
+      include: productIncludes,
       order: [['id', 'ASC']],
     });
     res.json(products);
@@ -28,15 +32,7 @@ export const getProducts = async (req, res) => {
 export const getProductById = async (req, res) => {
   try {
     const data = await Product.findByPk(req.params.id, {
-      include: [{
-        model: ProductVariant,
-        as: 'productvariants',
-        include: [
-          { model: Shape, as: 'shape' },
-          { model: Size, as: 'size' },
-          { model: Flavor, as: 'flavor' },
-        ],
-      }],
+      include: productIncludes,
     });
     if (!data) {
       return res.status(404).json({
@@ -55,24 +51,23 @@ export const createProduct = async (req, res) => {
     const { name, description, type_id, is_active, variants } = req.body;
 
     if (!name || !type_id) {
+      await t.rollback();
       return res.status(400).json({ message: 'Name dan type_id wajib diisi' });
     }
 
     // Validate each variant if provided
     if (variants && Array.isArray(variants) && variants.length > 0) {
-      for (const v of variants) {
-        if (!v.shape_id || !v.size_id || !v.flavor_id || v.price === undefined) {
-          return res.status(400).json({ message: 'Setiap variant harus memiliki shape_id, size_id, flavor_id, dan price' });
-        }
-        if (typeof v.price !== 'number' || v.price < 0) {
-          return res.status(400).json({ message: 'Harga variant harus berupa angka positif' });
-        }
+      const validationError = getVariantValidationError(variants);
+      if (validationError) {
+        await t.rollback();
+        return res.status(400).json({ message: validationError });
       }
 
       // Check for duplicate combinations
-      const comboKeys = variants.map(v => `${v.shape_id}-${v.size_id}-${v.flavor_id}`);
+      const comboKeys = variants.map(getVariantCombinationKey);
       const uniqueCombos = new Set(comboKeys);
       if (comboKeys.length !== uniqueCombos.size) {
+        await t.rollback();
         return res.status(400).json({ message: 'Terdapat kombinasi variant yang duplikat' });
       }
     }
@@ -124,23 +119,22 @@ export const addProductVariants = async (req, res) => {
     const { variants } = req.body;
 
     if (!variants || !Array.isArray(variants) || variants.length === 0) {
+      await t.rollback();
       return res.status(400).json({ message: 'Minimal satu variant harus dipilih' });
     }
 
     // Check product exists
-    const product = await Product.findByPk(id);
+    const product = await Product.findByPk(id, { transaction: t });
     if (!product) {
+      await t.rollback();
       return res.status(404).json({ message: 'Product tidak ditemukan' });
     }
 
     // Validate each variant
-    for (const v of variants) {
-      if (!v.shape_id || !v.size_id || !v.flavor_id || v.price === undefined) {
-        return res.status(400).json({ message: 'Setiap variant harus memiliki shape_id, size_id, flavor_id, dan price' });
-      }
-      if (typeof v.price !== 'number' || v.price < 0) {
-        return res.status(400).json({ message: 'Harga variant harus berupa angka positif' });
-      }
+    const validationError = getVariantValidationError(variants);
+    if (validationError) {
+      await t.rollback();
+      return res.status(400).json({ message: validationError });
     }
 
     // Check for duplicate combinations against existing variants
@@ -148,12 +142,13 @@ export const addProductVariants = async (req, res) => {
       where: { product_id: id },
       transaction: t,
     });
-    const existingMap = new Map(existingVariants.map(ev => [`${ev.shape_id}-${ev.size_id}-${ev.flavor_id}`, ev]));
+    const existingMap = new Map(existingVariants.map((variant) => [getVariantCombinationKey(variant), variant]));
 
     const newVariants = [];
     for (const v of variants) {
-      const key = `${v.shape_id}-${v.size_id}-${v.flavor_id}`;
+      const key = getVariantCombinationKey(v);
       if (existingMap.has(key)) {
+        await t.rollback();
         return res.status(400).json({ 
           message: `Kombinasi Shape=${v.shape_id}, Size=${v.size_id}, Flavor=${v.flavor_id} sudah ada untuk produk ini` 
         });
@@ -193,6 +188,7 @@ export const updateProduct = async (req, res) => {
 
     const product = await Product.findByPk(id, { transaction: t });
     if (!product) {
+      await t.rollback();
       return res.status(404).json({
         message: 'Product tidak ditemukan',
       });
@@ -259,21 +255,44 @@ export const updateProduct = async (req, res) => {
 };
 
 export const deleteProduct = async (req, res) => {
+  const t = await Product.sequelize.transaction();
   try {
     const { id } = req.params;
-    const product = await Product.findByPk(id);
+    const product = await Product.findByPk(id, { transaction: t, lock: t.LOCK.UPDATE });
 
     if (!product) {
+      await t.rollback();
       return res.status(404).json({
         message: 'Product tidak ditemukan',
       });
     }
 
-    await product.destroy();
+    const variants = await ProductVariant.findAll({
+      where: { product_id: id },
+      attributes: ['id'],
+      raw: true,
+      transaction: t,
+    });
+    const variantIds = variants.map((variant) => variant.id);
+    const linkedOrderItems = variantIds.length
+      ? await OrderItem.count({ where: { product_variant_id: { [Op.in]: variantIds } }, transaction: t })
+      : 0;
+
+    if (linkedOrderItems > 0) {
+      await t.rollback();
+      return res.status(409).json({
+        message: 'Produk sudah digunakan dalam pesanan dan tidak dapat dihapus. Nonaktifkan produk agar riwayat pesanan tetap terjaga.',
+      });
+    }
+
+    await ProductVariant.destroy({ where: { product_id: id }, transaction: t });
+    await product.destroy({ transaction: t });
+    await t.commit();
     res.json({
       message: 'Product berhasil dihapus',
     });
   } catch (error) {
+    if (!t.finished) await t.rollback();
     res.status(500).json({ message: error.message });
   }
 };
@@ -281,18 +300,20 @@ export const deleteProduct = async (req, res) => {
 export const updateProductStatus = async (req, res) => {
   try {
     const { id } = req.params;
-    const { status } = req.body;
+    const { status } = req.body || {};
 
-    if (status === undefined) {
+    const validStatuses = [true, false, 'true', 'false', 'aktif', 'tidak_aktif'];
+    if (!validStatuses.includes(status)) {
       return res.status(400).json({ message: 'Status wajib diisi (true/false)' });
     }
+    const isActive = status === true || status === 'true' || status === 'aktif';
 
     const product = await Product.findByPk(id);
     if (!product) {
       return res.status(404).json({ message: 'Product tidak ditemukan' });
     }
 
-    await product.update({ is_active: status });
+    await product.update({ is_active: isActive });
     res.json({
       message: 'Product status updated successfully',
       product,

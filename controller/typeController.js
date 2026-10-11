@@ -1,5 +1,5 @@
 import Type from "../models/type.js";
-import Categories from "../models/categories.js"; // Menggunakan PascalCase agar jelas bedanya dengan variabel instance
+import Categories from "../models/categories.js";
 
 export const getTypes = async (req, res) => {
   try {
@@ -39,8 +39,7 @@ export const getTypeById = async (req, res) => {
 
 export const createType = async (req, res) => {
   try {
-    // Sesuaikan dengan nama properti foreign key (category_id)
-    const categoryId = req.body.category_id || req.body.category_id;
+    const { category_id: categoryId } = req.body;
     const categoryExists = await Categories.findByPk(categoryId);
 
     if (!categoryExists) {

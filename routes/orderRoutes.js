@@ -32,7 +32,7 @@ router.delete("/orders/:id", deleteOrder);
 router.get("/payments", getPayments);
 router.get("/payments/:id", getPaymentById);
 router.post("/payments", authMiddleware, uploadMiddleware.single('payment_proof'), createPayment);
-router.patch("/payments/:id", authMiddleware, uploadMiddleware.single('payment_proof'), updatePayment);
+router.patch("/payments/:id", authMiddleware, adminMiddleware, uploadMiddleware.single('payment_proof'), updatePayment);
 router.delete("/payments/:id", deletePayment);
 
 export default router;

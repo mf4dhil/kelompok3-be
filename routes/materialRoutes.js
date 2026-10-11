@@ -15,8 +15,18 @@ import {
   getMaterialPurchases,
   getMaterialPurchaseById,
 } from "../controller/materialController.js";
+import {
+  getMaterialUnits,
+  createMaterialUnit,
+  updateMaterialUnit,
+  deleteMaterialUnit,
+} from "../controller/materialUnitController.js";
+import { getRecipes, updateRecipe } from "../controller/recipeController.js";
 
 const router = express.Router();
+
+router.get("/recipes", authMiddleware, adminMiddleware, getRecipes);
+router.put("/recipes/variants/:variantId", authMiddleware, adminMiddleware, updateRecipe);
 
 // Material Master (CRUD)
 router.get("/materials", getMaterials);
@@ -29,6 +39,10 @@ router.delete("/materials/:id", authMiddleware, adminMiddleware, deleteMaterial)
 // Material Stock & Transactions
 router.get("/materials/:id/stock", getMaterialStock);
 router.get("/materials/:id/transactions", getMaterialTransactions);
+router.get("/materials/:id/units", getMaterialUnits);
+router.post("/materials/:id/units", authMiddleware, adminMiddleware, createMaterialUnit);
+router.patch("/materials/:id/units/:unitId", authMiddleware, adminMiddleware, updateMaterialUnit);
+router.delete("/materials/:id/units/:unitId", authMiddleware, adminMiddleware, deleteMaterialUnit);
 
 // Material Usage & Adjustment (stok keluar / koreksi)
 router.post("/materials/:id/usage", authMiddleware, adminMiddleware, addMaterialUsage);

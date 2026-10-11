@@ -2,6 +2,7 @@ import express from 'express';
 import * as authController from '../controller/auth.controller.js';
 import * as userController from '../controller/user.controller.js';
 import * as productController from '../controller/productController.js';
+import { getDashboardSummary } from '../controller/dashboardController.js';
 import { authMiddleware, adminMiddleware } from '../middleware/index.middleware.js';
 
 const router = express.Router();
@@ -11,6 +12,7 @@ router.post('/register', authController.register);
 router.post('/login', authController.login);
 router.post('/logout', authController.logout);
 router.get('/me', authMiddleware, authController.me);
+router.get('/dashboard/summary', authMiddleware, adminMiddleware, getDashboardSummary);
 router.post('/resetPassword', authController.resetPassword);
 
 // User routes - admin can edit any user, user can edit own profile
@@ -24,6 +26,7 @@ router.get('/products', productController.getProducts);
 router.get('/products/:id', productController.getProductById);
 router.post('/products', authMiddleware, adminMiddleware, productController.createProduct);
 router.put('/products/:id', authMiddleware, adminMiddleware, productController.updateProduct);
+router.patch('/products/:id', authMiddleware, adminMiddleware, productController.updateProduct);
 router.patch('/products/:id/status', authMiddleware, adminMiddleware, productController.updateProductStatus);
 router.delete('/products/:id', authMiddleware, adminMiddleware, productController.deleteProduct);
 

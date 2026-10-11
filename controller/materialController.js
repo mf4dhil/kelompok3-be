@@ -3,6 +3,7 @@ import MaterialStock from "../models/material_stock.js";
 import MaterialTransaction from "../models/material_transaction.js";
 import MaterialPurchase from "../models/material_purchase.js";
 import MaterialPurchaseItem from "../models/material_purchase_item.js";
+import MaterialUnit from "../models/material_unit.js";
 import ExpenseCategory from "../models/expense_category.js";
 import Expense from "../models/expense.js";
 import db from "../config/dababase.js";
@@ -21,6 +22,19 @@ const findMaterialWithStock = (id, options = {}) =>
   Material.findByPk(id, {
     include: [{ model: MaterialStock, as: "stock" }],
     ...options,
+  });
+
+const ensureBaseUnit = (material, transaction) =>
+  MaterialUnit.findOrCreate({
+    where: { material_id: material.id, is_base: true },
+    defaults: {
+      material_id: material.id,
+      name: material.unit,
+      conversion_factor: 1,
+      is_base: true,
+      is_active: true,
+    },
+    ...(transaction ? { transaction } : {}),
   });
 
 // ---------------- MATERIAL (master) ----------------
@@ -79,6 +93,7 @@ export const createMaterial = async (req, res) => {
     );
     // Setiap material memiliki tepat satu record stok (1:1)
     await MaterialStock.create({ material_id: data.id, quantity: 0 }, { transaction: t });
+    await ensureBaseUnit(data, t);
 
     await t.commit();
     res.status(201).json({ message: "Material berhasil ditambahkan", data });
@@ -343,11 +358,39 @@ export const createMaterialPurchase = async (req, res) => {
       }
     }
 
+    const baseUnits = await Promise.all(materials.map((material) => ensureBaseUnit(material, t)));
+    const baseUnitByMaterial = new Map(
+      baseUnits.map(([unit]) => [unit.material_id, unit]),
+    );
+    const requestedUnitIds = [...new Set(items.map((item) => Number(item.unitId)).filter(Boolean))];
+    const requestedUnits = requestedUnitIds.length
+      ? await MaterialUnit.findAll({
+          where: { id: requestedUnitIds, material_id: materialIds, is_active: true },
+          transaction: t,
+          lock: t.LOCK.UPDATE,
+        })
+      : [];
+    const unitMap = new Map(requestedUnits.map((unit) => [unit.id, unit]));
+
+    for (const item of items) {
+      if (item.unitId && !unitMap.has(Number(item.unitId))) {
+        await t.rollback();
+        return res.status(404).json({ message: `Satuan untuk material id ${item.materialId} tidak ditemukan atau tidak aktif` });
+      }
+    }
+
     const processedItems = items.map((item) => {
-      const quantity = Number(item.quantity);
-      const unitPrice = Number(item.unitPrice);
+      const enteredQuantity = Number(item.quantity);
+      const enteredUnitPrice = Number(item.unitPrice);
+      const material = materialMap.get(Number(item.materialId));
+      const unit = item.unitId
+        ? unitMap.get(Number(item.unitId))
+        : baseUnitByMaterial.get(material.id);
+      const conversionFactor = Number(unit?.conversion_factor || 1);
+      const quantity = enteredQuantity * conversionFactor;
+      const unitPrice = enteredUnitPrice / conversionFactor;
       return {
-        material: materialMap.get(Number(item.materialId)),
+        material,
         quantity,
         unitPrice,
         subtotal: Math.round(quantity * unitPrice * 100) / 100,

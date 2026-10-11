@@ -10,6 +10,8 @@ import MaterialStock from "./material_stock.js";
 import MaterialTransaction from "./material_transaction.js";
 import MaterialPurchase from "./material_purchase.js";
 import MaterialPurchaseItem from "./material_purchase_item.js";
+import MaterialUnit from "./material_unit.js";
+import ProductVariantMaterial from "./product_variant_material.js";
 import ExpenseCategory from "./expense_category.js";
 import Expense from "./expense.js";
 
@@ -34,6 +36,8 @@ export {
   MaterialTransaction,
   MaterialPurchase,
   MaterialPurchaseItem,
+  MaterialUnit,
+  ProductVariantMaterial,
   ExpenseCategory,
   Expense,
 };

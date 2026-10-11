@@ -7,6 +7,11 @@ import Payment from "../models/payment.js";
 import db from "../config/dababase.js";
 import { Op } from "sequelize";
 import Product from "../models/product.js";
+import ProductVariantMaterial from "../models/product_variant_material.js";
+import MaterialStock from "../models/material_stock.js";
+import MaterialTransaction from "../models/material_transaction.js";
+import Material from "../models/material.js";
+import { getPagination, getPaginationMeta } from "../utils/pagination.js";
 
 // Helper: Generate unique order number (format ORD-YYYYMMDD-XXXX)
 const generateOrderNumber = async () => {
@@ -28,13 +33,18 @@ const generateOrderNumber = async () => {
 export const getOrders = async (req, res) => {
   try {
     const {
+      page = 1,
+      limit = 10,
       status,
       payment_status,
       customer_id,
       pickup_date,
       order_date_start,
       order_date_end,
+      sort_by,
+      sort_order,
     } = req.query;
+    const pagination = getPagination(page, limit);
     const where = {};
 
     if (status) where.status = status;
@@ -43,9 +53,13 @@ export const getOrders = async (req, res) => {
     if (pickup_date) where.pickup_date = pickup_date;
     if (order_date_start || order_date_end) {
       where.order_date = {};
-      if (order_date_start) where.order_date[Op.gte] = new Date(order_date_start);
-      if (order_date_end) where.order_date[Op.lte] = new Date(order_date_end);
+      if (order_date_start) where.order_date[Op.gte] = new Date(`${order_date_start}T00:00:00.000`);
+      if (order_date_end) where.order_date[Op.lte] = new Date(`${order_date_end}T23:59:59.999`);
     }
+
+    const sortableColumns = ["created_at", "order_date", "pickup_date"];
+    const sortColumn = sortableColumns.includes(sort_by) ? sort_by : "order_date";
+    const sortDirection = String(sort_order).toUpperCase() === "ASC" ? "ASC" : "DESC";
 
     const { count, rows } = await Order.findAndCountAll({
       where,
@@ -54,12 +68,14 @@ export const getOrders = async (req, res) => {
         { model: OrderItem, include: [{ model: ProductVariant }] },
         { model: Rekening, as: 'rekening' },
       ],
-      order: [["order_date", "DESC"]],
+      limit: pagination.pageSize,
+      offset: pagination.offset,
+      order: [[sortColumn, sortDirection], ["id", "DESC"]],
     });
 
     res.json({
       data: rows,
-      totalItems: count,
+      ...getPaginationMeta(count, pagination.currentPage, pagination.pageSize),
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -183,6 +199,48 @@ export const createOrder = async (req, res) => {
       });
     }
 
+    // Resep tersimpan dalam satuan dasar stok. Beberapa baris order untuk varian
+    // yang sama dijumlahkan sebelum stok diperiksa agar tidak terjadi stok negatif.
+    const variantIds = [...new Set(createdItems.map((item) => Number(item.product_variant_id)))];
+    const recipes = await ProductVariantMaterial.findAll({
+      where: { product_variant_id: { [Op.in]: variantIds } },
+      transaction: t,
+    });
+    const quantityByVariant = new Map();
+    for (const item of createdItems) {
+      quantityByVariant.set(
+        Number(item.product_variant_id),
+        (quantityByVariant.get(Number(item.product_variant_id)) || 0) + Number(item.quantity),
+      );
+    }
+    const materialUsage = new Map();
+    for (const recipe of recipes) {
+      const amount = Number(recipe.quantity) * (quantityByVariant.get(Number(recipe.product_variant_id)) || 0);
+      materialUsage.set(Number(recipe.material_id), (materialUsage.get(Number(recipe.material_id)) || 0) + amount);
+    }
+
+    const materialIds = [...materialUsage.keys()].sort((a, b) => a - b);
+    const stocks = materialIds.length
+      ? await MaterialStock.findAll({
+          where: { material_id: { [Op.in]: materialIds } },
+          order: [["material_id", "ASC"]],
+          transaction: t,
+          lock: t.LOCK.UPDATE,
+        })
+      : [];
+    const stockByMaterial = new Map(stocks.map((stock) => [Number(stock.material_id), stock]));
+    for (const [materialId, quantity] of materialUsage) {
+      const stock = stockByMaterial.get(materialId);
+      const available = Number(stock?.quantity || 0);
+      if (!stock || available < quantity) {
+        const material = await Material.findByPk(materialId, { attributes: ["name", "unit"], transaction: t });
+        await t.rollback();
+        return res.status(409).json({
+          message: `Stok ${material?.name || `bahan #${materialId}`} tidak cukup. Tersedia ${available} ${material?.unit || "unit"}, dibutuhkan ${quantity}.`,
+        });
+      }
+    }
+
     // Buat order
     const orderNumber = await generateOrderNumber();
     const order = await Order.create(
@@ -212,6 +270,23 @@ export const createOrder = async (req, res) => {
         ),
       ),
     );
+
+    for (const [materialId, quantity] of materialUsage) {
+      const stock = stockByMaterial.get(materialId);
+      await stock.update({ quantity: Number(stock.quantity) - quantity }, { transaction: t });
+      await MaterialTransaction.create(
+        {
+          material_id: materialId,
+          type: "USAGE",
+          quantity: -quantity,
+          reference_type: "order",
+          reference_id: order.id,
+          notes: `Pemakaian otomatis untuk pesanan ${orderNumber}`,
+          created_by: req.user?.id || null,
+        },
+        { transaction: t },
+      );
+    }
 
     // Pembayaran cash pada saat order dibuat langsung tercatat sebagai terverifikasi.
     if (payment_method === 'cash') {

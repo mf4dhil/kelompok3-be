@@ -1,11 +1,12 @@
 import Customer from "../models/customer.js";
 import Order from "../models/order.js";
 import { Op } from "sequelize";
+import { getPagination, getPaginationMeta } from "../utils/pagination.js";
 
 export const getCustomers = async (req, res) => {
   try {
     const { page = 1, limit = 10, search } = req.query;
-    const offset = (parseInt(page) - 1) * parseInt(limit);
+    const pagination = getPagination(page, limit);
     const where = {};
 
     if (search) {
@@ -17,16 +18,14 @@ export const getCustomers = async (req, res) => {
 
     const { count, rows } = await Customer.findAndCountAll({
       where,
-      limit: parseInt(limit),
-      offset,
+      limit: pagination.pageSize,
+      offset: pagination.offset,
       order: [["created_at", "DESC"]],
     });
 
     res.json({
       data: rows,
-      currentPage: parseInt(page),
-      totalPages: Math.ceil(count / parseInt(limit)),
-      totalItems: count,
+      ...getPaginationMeta(count, pagination.currentPage, pagination.pageSize),
     });
   } catch (error) {
     res.status(500).json({ message: error.message });

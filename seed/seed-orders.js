@@ -1,3 +1,4 @@
+import { Op } from 'sequelize';
 import db from '../config/dababase.js';
 import '../models/index.models.js'; // Load all models and relations first
 import Customer from '../models/customer.js';
@@ -7,15 +8,36 @@ import OrderItem from '../models/order_item.js';
 import Payment from '../models/payment.js';
 import ProductVariant from '../models/productvariants.js';
 
+const ORDER_COUNT = 15;
+const DAY_IN_MS = 24 * 60 * 60 * 1000;
+
+const orderScenarios = [
+  { status: 'pending', paymentStatus: 'partial', paymentState: 'verified', daysAgo: 1, pickupInDays: 3 },
+  { status: 'processing', paymentStatus: 'paid', paymentState: 'verified', daysAgo: 3, pickupInDays: 2 },
+  { status: 'ready', paymentStatus: 'partial', paymentState: 'pending', daysAgo: 2, pickupInDays: 0 },
+  { status: 'completed', paymentStatus: 'paid', paymentState: 'verified', daysAgo: 12, pickupInDays: -9 },
+  { status: 'pending', paymentStatus: 'unpaid', daysAgo: 0, pickupInDays: 5 },
+  { status: 'processing', paymentStatus: 'partial', paymentState: 'verified', daysAgo: 4, pickupInDays: 3 },
+  { status: 'completed', paymentStatus: 'paid', paymentState: 'verified', daysAgo: 18, pickupInDays: -15 },
+  { status: 'cancelled', paymentStatus: 'unpaid', daysAgo: 8, pickupInDays: -2 },
+  { status: 'ready', paymentStatus: 'paid', paymentState: 'verified', daysAgo: 2, pickupInDays: 0 },
+  { status: 'pending', paymentStatus: 'partial', paymentState: 'pending', daysAgo: 1, pickupInDays: 7 },
+  { status: 'completed', paymentStatus: 'paid', paymentState: 'verified', daysAgo: 25, pickupInDays: -22 },
+  { status: 'processing', paymentStatus: 'unpaid', daysAgo: 2, pickupInDays: 4 },
+  { status: 'ready', paymentStatus: 'partial', paymentState: 'verified', daysAgo: 1, pickupInDays: 0 },
+  { status: 'pending', paymentStatus: 'paid', paymentState: 'verified', daysAgo: 0, pickupInDays: 6 },
+  { status: 'cancelled', paymentStatus: 'unpaid', daysAgo: 10, pickupInDays: -4 },
+];
+
+const atDayOffset = (date, dayOffset) => new Date(date.getTime() + dayOffset * DAY_IN_MS);
+
 const seedOrders = async () => {
   try {
     await db.authenticate();
     await db.sync();
+    console.log(`Starting seed for ${ORDER_COUNT} orders...`);
 
-    console.log('Starting order & payment seed...');
-
-    // 1. Cek atau buat Customer
-    let [customer, created] = await Customer.findOrCreate({
+    const [customer] = await Customer.findOrCreate({
       where: { email: 'pelanggan@example.com' },
       defaults: {
         name: 'Pelanggan Contoh',
@@ -24,11 +46,8 @@ const seedOrders = async () => {
         address: 'Jl. Contoh No. 1',
       },
     });
-    if (created) console.log('Customer seeded:', customer.name);
-    else console.log('Customer already exists:', customer.email);
 
-    // 2. Cek atau buat Rekening
-    let [rekening, createdRek] = await Rekening.findOrCreate({
+    const [rekening] = await Rekening.findOrCreate({
       where: { account_number: '1234567890' },
       defaults: {
         bank_name: 'BCA',
@@ -37,100 +56,103 @@ const seedOrders = async () => {
         is_active: true,
       },
     });
-    if (createdRek) console.log('Rekening seeded:', rekening.bank_name);
-    else console.log('Rekening already exists');
 
-    // 3. Cari product variants yang ada untuk dibuat order items
     const variants = await ProductVariant.findAll({
-      limit: 3,
+      where: { is_active: true },
       order: [['id', 'ASC']],
     });
 
     if (variants.length === 0) {
-      console.log('⚠️  Tidak ada ProductVariant di database.');
-      console.log('Silakan jalankan seed utama terlebih dahulu (node seed/seed.js)');
-      process.exit(1);
+      throw new Error('Tidak ada ProductVariant aktif. Jalankan seed utama terlebih dahulu.');
     }
 
-    // 4. Hitung total_amount
-    const selectedVariants = variants.slice(0, 2);
-    const totalAmount = selectedVariants.reduce((sum, v) => {
-      return sum + Math.round(parseFloat(v.price));
+    const today = new Date();
+    const datePrefix = `ORD-${today.toISOString().slice(0, 10)}-`;
+    const existingOrders = await Order.findAll({
+      attributes: ['order_number'],
+      where: { order_number: { [Op.like]: `${datePrefix}%` } },
+      raw: true,
+    });
+    const highestSequence = existingOrders.reduce((highest, order) => {
+      const sequence = Number(order.order_number.slice(datePrefix.length));
+      return Number.isInteger(sequence) ? Math.max(highest, sequence) : highest;
     }, 0);
 
-    // 5. Buat Order dalam Transaction
-    const t = await db.transaction();
-
+    const transaction = await db.transaction();
     try {
-      const orderNumber = `ORD-${new Date().toISOString().slice(0, 10)}-0001`;
+      for (let index = 0; index < ORDER_COUNT; index += 1) {
+        const scenario = orderScenarios[index];
+        const orderDate = atDayOffset(today, -scenario.daysAgo);
+        const pickupDate = atDayOffset(today, scenario.pickupInDays);
+        const itemCount = Math.min(variants.length, 1 + (index % 3));
+        const items = Array.from({ length: itemCount }, (_, itemIndex) => {
+          const variant = variants[(index + itemIndex) % variants.length];
+          const quantity = ((index + itemIndex) % 3) + 1;
+          const price = Math.round(Number(variant.price));
 
-      const order = await Order.create(
-        {
-          customer_id: customer.id,
-          order_number: orderNumber,
-          pickup_date: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000), // 2 hari dari sekarang
-          notes: 'Order pertama dari seed',
-          status: 'pending',
-          payment_status: 'partial', // Kita buat partial karena baru bayar DP
-          rekening_id: rekening.id,
-          total_amount: totalAmount,
-        },
-        { transaction: t }
-      );
+          return {
+            product_variant_id: variant.id,
+            quantity,
+            price,
+            subtotal: price * quantity,
+            notes: `Item ${itemIndex + 1} untuk pesanan seed ${index + 1}`,
+          };
+        });
+        const totalAmount = items.reduce((total, item) => total + item.subtotal, 0);
+        const orderNumber = `${datePrefix}${String(highestSequence + index + 1).padStart(4, '0')}`;
 
-      console.log('Order created ID:', order.id);
+        const order = await Order.create(
+          {
+            customer_id: customer.id,
+            order_number: orderNumber,
+            order_date: orderDate,
+            pickup_date: pickupDate,
+            notes: `Pesanan contoh ${index + 1} dari seed`,
+            status: scenario.status,
+            payment_status: scenario.paymentStatus,
+            rekening_id: rekening.id,
+            total_amount: totalAmount,
+          },
+          { transaction }
+        );
 
-      // 6. Buat OrderItems
-      const firstVariant = variants[0];
-      const item1 = await OrderItem.create(
-        {
-          order_id: order.id,
-          product_variant_id: firstVariant.id,
-          quantity: 1,
-          price: Math.round(parseFloat(firstVariant.price)),
-          subtotal: Math.round(parseFloat(firstVariant.price)),
-          notes: 'Catatan item pertama',
-        },
-        { transaction: t }
-      );
+        await OrderItem.bulkCreate(
+          items.map((item) => ({ ...item, order_id: order.id })),
+          { transaction }
+        );
 
-      // 7. Buat Payment (DP / Transfer) di tabel payments (Normalisasi)
-      const paymentAmount = Math.round(totalAmount / 2); // Bayar 50% DP
-      const payment = await Payment.create(
-        {
-          order_id: order.id,
-          rekening_id: rekening.id,
-          payment_type: 'dp',
-          amount: paymentAmount,
-          payment_method: 'transfer',
-          payment_proof: '/uploads/payments/sample-proof.jpg',
-          status: 'verified',
-          paid_at: new Date(),
-        },
-        { transaction: t }
-      );
+        if (scenario.paymentState) {
+          const amount = scenario.paymentStatus === 'paid' ? totalAmount : Math.max(1, Math.round(totalAmount / 2));
+          const isCash = index % 2 === 1;
 
-      await t.commit();
+          await Payment.create(
+            {
+              order_id: order.id,
+              rekening_id: isCash ? null : rekening.id,
+              payment_type: scenario.paymentStatus === 'paid' ? 'full' : 'dp',
+              amount,
+              payment_method: isCash ? 'cash' : 'transfer',
+              payment_proof: isCash ? null : '/uploads/payments/sample-proof.jpg',
+              status: scenario.paymentState,
+              paid_at: scenario.paymentState === 'verified' ? orderDate : null,
+            },
+            { transaction }
+          );
+        }
+      }
 
-      console.log(`✅ Order & Payment seeded successfully!`);
-      console.log(`   - Order ID: ${order.id}`);
-      console.log(`   - Order Number: ${order.order_number}`);
-      console.log(`   - Total Amount: Rp ${totalAmount.toLocaleString()}`);
-      console.log(`   - Payment ID: ${payment.id}`);
-      console.log(`   - Paid Amount: Rp ${paymentAmount.toLocaleString()} (${payment.payment_type})`);
-      console.log(`   - Payment Proof: ${payment.payment_proof}`);
-
-    } catch (err) {
-      await t.rollback();
-      console.error('❌ Error creating order/payment:', err.message);
-      process.exit(1);
+      await transaction.commit();
+      console.log(`✅ Berhasil menambahkan ${ORDER_COUNT} order beserta item dan pembayaran terkait.`);
+      console.log(`   - Nomor order: ${datePrefix}${String(highestSequence + 1).padStart(4, '0')}–${String(highestSequence + ORDER_COUNT).padStart(4, '0')}`);
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
     }
-
-    process.exit(0);
-
-  } catch (err) {
-    console.error('❌ Seed error:', err.message);
-    process.exit(1);
+  } catch (error) {
+    console.error('❌ Seed order gagal:', error.message);
+    process.exitCode = 1;
+  } finally {
+    await db.close();
   }
 };
 
