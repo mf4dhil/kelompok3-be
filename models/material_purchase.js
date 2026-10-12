@@ -18,6 +18,10 @@ const MaterialPurchase = db.define(
       type: DataTypes.INTEGER,
       allowNull: true,
     },
+    supplier_name: {
+      type: DataTypes.STRING(200),
+      allowNull: true,
+    },
     purchase_date: {
       type: DataTypes.DATEONLY,
       allowNull: false,

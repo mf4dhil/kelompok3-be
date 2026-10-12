@@ -43,6 +43,7 @@ export const getOrders = async (req, res) => {
       order_date_end,
       sort_by,
       sort_order,
+      search,
     } = req.query;
     const pagination = getPagination(page, limit);
     const where = {};
@@ -51,6 +52,11 @@ export const getOrders = async (req, res) => {
     if (payment_status) where.payment_status = payment_status;
     if (customer_id) where.customer_id = customer_id;
     if (pickup_date) where.pickup_date = pickup_date;
+    if (search) where[Op.or] = [
+      { order_number: { [Op.like]: `%${search}%` } },
+      { '$Customer.name$': { [Op.like]: `%${search}%` } },
+      { '$Customer.phone$': { [Op.like]: `%${search}%` } },
+    ];
     if (order_date_start || order_date_end) {
       where.order_date = {};
       if (order_date_start) where.order_date[Op.gte] = new Date(`${order_date_start}T00:00:00.000`);
@@ -372,7 +378,35 @@ export const updateOrder = async (req, res) => {
   }
 };
 
+const restoreOrderMaterials = async (order, transaction, userId) => {
+  const usages = await MaterialTransaction.findAll({
+    where: { reference_type: 'order', reference_id: order.id, type: 'USAGE' },
+    transaction,
+  });
+  for (const usage of usages) {
+    const alreadyReturned = await MaterialTransaction.findOne({
+      where: { reference_type: 'order_cancel', reference_id: order.id, material_id: usage.material_id, type: 'RETURN' },
+      transaction,
+    });
+    if (alreadyReturned) continue;
+    const stock = await MaterialStock.findOne({ where: { material_id: usage.material_id }, transaction, lock: transaction.LOCK.UPDATE });
+    if (!stock) throw new Error(`Stok bahan #${usage.material_id} tidak ditemukan`);
+    const quantity = Math.abs(Number(usage.quantity));
+    await stock.update({ quantity: Number(stock.quantity) + quantity }, { transaction });
+    await MaterialTransaction.create({
+      material_id: usage.material_id,
+      type: 'RETURN',
+      quantity,
+      reference_type: 'order_cancel',
+      reference_id: order.id,
+      notes: `Pengembalian stok pesanan ${order.order_number} yang dibatalkan`,
+      created_by: userId || null,
+    }, { transaction });
+  }
+};
+
 export const updateOrderStatus = async (req, res) => {
+  const t = await db.transaction();
   try {
     const { id } = req.params;
     const { status } = req.body;
@@ -381,18 +415,25 @@ export const updateOrderStatus = async (req, res) => {
       return res.status(400).json({ message: 'status wajib diisi' });
     }
 
-    const order = await Order.findByPk(id);
+    const order = await Order.findByPk(id, { transaction: t, lock: t.LOCK.UPDATE });
     if (!order) {
+      await t.rollback();
       return res.status(404).json({ message: 'Order tidak ditemukan' });
     }
 
-    await order.update({ status });
+    if (status === 'cancelled' && order.status !== 'cancelled') {
+      await restoreOrderMaterials(order, t, req.user?.id);
+    }
+
+    await order.update({ status }, { transaction: t });
+    await t.commit();
 
     res.json({
       message: 'Order status berhasil diperbarui',
       data: order,
     });
   } catch (error) {
+    await t.rollback();
     res.status(500).json({ message: error.message });
   }
 };
@@ -455,14 +496,16 @@ export const deleteOrder = async (req, res) => {
       return res.status(404).json({ message: 'Order tidak ditemukan' });
     }
 
-    // Hapus order items terlebih dahulu, lalu order, dalam satu transaction
-    await OrderItem.destroy({ where: { order_id: id }, transaction: t });
-    await order.destroy({ transaction: t });
+    // Simpan riwayat PO untuk laporan, tandai cancelled, dan kembalikan stok.
+    if (order.status !== 'cancelled') {
+      await restoreOrderMaterials(order, t, req.user?.id);
+      await order.update({ status: 'cancelled' }, { transaction: t });
+    }
 
     await t.commit();
 
     res.json({
-      message: 'Order dan semua items berhasil dihapus',
+      message: 'Order dibatalkan dan tetap tersimpan di laporan',
     });
   } catch (error) {
     await t.rollback();

@@ -15,6 +15,7 @@ import orderRoute from './routes/orderRoutes.js';
 import materialRoute from './routes/materialRoutes.js';
 import expenseRoute from './routes/expenseRoutes.js';
 import reportRoute from './routes/reportRoutes.js';
+import MaterialPurchase from './models/material_purchase.js';
 
 const app = express();
 app.use(
@@ -35,6 +36,13 @@ app.use(cookieParser());
   try {
     await db.authenticate();
     await db.sync(); // sync all defined models
+    const purchaseColumns = await db.getQueryInterface().describeTable('material_purchases');
+    if (!purchaseColumns.supplier_name) {
+      await db.getQueryInterface().addColumn('material_purchases', 'supplier_name', {
+        type: MaterialPurchase.rawAttributes.supplier_name.type,
+        allowNull: true,
+      });
+    }
     console.log('Database connected and synced');
   } catch (err) {
     console.error('Database connection error:', err);

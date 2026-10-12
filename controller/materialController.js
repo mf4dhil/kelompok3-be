@@ -315,7 +315,7 @@ export const getLowStockMaterials = async (req, res) => {
 
 // POST /material-purchases
 export const createMaterialPurchase = async (req, res) => {
-  const { purchaseDate, supplierId, paymentMethod, notes, items } = req.body;
+  const { purchaseDate, supplierId, supplier, paymentMethod, notes, items } = req.body;
 
   // Validasi input sebelum membuka transaction
   if (!purchaseDate || Number.isNaN(Date.parse(purchaseDate))) {
@@ -403,6 +403,7 @@ export const createMaterialPurchase = async (req, res) => {
       {
         purchase_number: generateNumber("PUR"),
         supplier_id: supplierId || null,
+        supplier_name: supplier?.trim() || null,
         purchase_date: purchaseDate,
         total_amount: totalAmount,
         payment_method: paymentMethod,
@@ -493,7 +494,7 @@ export const getMaterialPurchases = async (req, res) => {
       ],
       order: [["purchase_date", "DESC"]],
     });
-    res.json(purchases);
+    res.json(purchases.map((purchase) => ({ ...purchase.toJSON(), supplier: purchase.supplier_name || null })));
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -513,7 +514,7 @@ export const getMaterialPurchaseById = async (req, res) => {
     if (!purchase) {
       return res.status(404).json({ message: "Pembelian bahan tidak ditemukan" });
     }
-    res.json(purchase);
+    res.json({ ...purchase.toJSON(), supplier: purchase.supplier_name || null });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
