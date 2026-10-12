@@ -22,6 +22,7 @@ router.delete('/user/:id', authMiddleware, adminMiddleware, userController.delet
 router.put('/profile/edit', authMiddleware, userController.editProfileSelf);
 
 // Product routes - admin can manage all products
+router.get('/products/customer', productController.getCustomerProducts);
 router.get('/products', productController.getProducts);
 router.get('/products/:id', productController.getProductById);
 router.post('/products', authMiddleware, adminMiddleware, productController.createProduct);

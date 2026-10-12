@@ -4,10 +4,14 @@ import {
      deleteProduct, 
      getProductById, 
      getProducts, 
-     updateProduct } from "../controller/productcontroller.js";
+     updateProduct,
+     getCustomerProducts
+
+} from "../controller/productController.js";
 
 const router = express.Router();
 
+router.get("/products/customer", getCustomerProducts);
 router.get("/products", getProducts);
 router.get("/products/:id", getProductById);
 router.post("/products", createProduct);

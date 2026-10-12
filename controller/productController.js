@@ -322,3 +322,39 @@ export const updateProductStatus = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
+
+
+export const getCustomerProducts = async (req, res) => {
+  try {
+    const products = await Product.findAll({
+      where: {
+        is_active: true,
+      },
+      include: [
+        {
+          model: ProductVariant,
+          as: "productvariants",
+          where: {
+            is_active: true,
+          },
+          required: true,
+          include: [
+            { model: Shape, as: "shape" },
+            { model: Size, as: "size" },
+            { model: Flavor, as: "flavor" },
+          ],
+        },
+      ],
+      order: [["id", "ASC"]],
+    });
+
+    res.status(200).json(products);
+  } catch (error) {
+    console.error("Gagal mengambil produk customer:", error);
+
+    res.status(500).json({
+      message: "Gagal mengambil produk customer",
+    });
+  }
+};
