@@ -100,11 +100,22 @@ export const getOrders = async (req, res) => {
     if (payment_status) where.payment_status = payment_status;
     if (customer_id) where.customer_id = customer_id;
     if (pickup_date) where.pickup_date = pickup_date;
-    if (search) where[Op.or] = [
-      { order_number: { [Op.like]: `%${search}%` } },
-      { '$Customer.name$': { [Op.like]: `%${search}%` } },
-      { '$Customer.phone$': { [Op.like]: `%${search}%` } },
-    ];
+    if (search) {
+      const matchingCustomers = await Customer.findAll({
+        attributes: ['id'],
+        where: {
+          [Op.or]: [
+            { name: { [Op.like]: `%${search}%` } },
+            { phone: { [Op.like]: `%${search}%` } },
+          ],
+        },
+        raw: true,
+      });
+      where[Op.or] = [
+        { order_number: { [Op.like]: `%${search}%` } },
+        { customer_id: { [Op.in]: matchingCustomers.map((customer) => customer.id) } },
+      ];
+    }
     if (order_date_start || order_date_end) {
       where.order_date = {};
       if (order_date_start) where.order_date[Op.gte] = new Date(`${order_date_start}T00:00:00.000`);
