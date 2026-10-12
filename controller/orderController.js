@@ -30,6 +30,54 @@ const generateOrderNumber = async () => {
   return orderNumber;
 };
 
+const consumeOrderMaterials = async (order, transaction, userId) => {
+  const priorUsage = await MaterialTransaction.findOne({
+    where: { reference_type: 'order', reference_id: order.id, type: 'USAGE' },
+    transaction,
+  });
+  if (priorUsage) return; // Prevent duplicate deduction for legacy orders or repeated requests.
+
+  const items = await OrderItem.findAll({ where: { order_id: order.id }, transaction });
+  const variantIds = [...new Set(items.map((item) => Number(item.product_variant_id)))];
+  const recipes = variantIds.length ? await ProductVariantMaterial.findAll({
+    where: { product_variant_id: { [Op.in]: variantIds } }, transaction,
+  }) : [];
+  const quantitiesByVariant = new Map();
+  for (const item of items) {
+    const id = Number(item.product_variant_id);
+    quantitiesByVariant.set(id, (quantitiesByVariant.get(id) || 0) + Number(item.quantity));
+  }
+  const materialUsage = new Map();
+  for (const recipe of recipes) {
+    const amount = Number(recipe.quantity) * (quantitiesByVariant.get(Number(recipe.product_variant_id)) || 0);
+    materialUsage.set(Number(recipe.material_id), (materialUsage.get(Number(recipe.material_id)) || 0) + amount);
+  }
+  const materialIds = [...materialUsage.keys()].sort((a, b) => a - b);
+  const stocks = materialIds.length ? await MaterialStock.findAll({
+    where: { material_id: { [Op.in]: materialIds } },
+    order: [['material_id', 'ASC']], transaction, lock: transaction.LOCK.UPDATE,
+  }) : [];
+  const stockByMaterial = new Map(stocks.map((stock) => [Number(stock.material_id), stock]));
+  for (const [materialId, quantity] of materialUsage) {
+    const stock = stockByMaterial.get(materialId);
+    const available = Number(stock?.quantity || 0);
+    if (!stock || available < quantity) {
+      const material = await Material.findByPk(materialId, { attributes: ['name', 'unit'], transaction });
+      throw new Error(`Stok ${material?.name || `bahan #${materialId}`} tidak cukup. Tersedia ${available} ${material?.unit || 'unit'}, dibutuhkan ${quantity}.`);
+    }
+  }
+  for (const [materialId, quantity] of materialUsage) {
+    const stock = stockByMaterial.get(materialId);
+    await stock.update({ quantity: Number(stock.quantity) - quantity }, { transaction });
+    await MaterialTransaction.create({
+      material_id: materialId, type: 'USAGE', quantity: -quantity,
+      reference_type: 'order', reference_id: order.id,
+      notes: `Pemakaian otomatis saat pesanan ${order.order_number} diproses`,
+      created_by: userId || null,
+    }, { transaction });
+  }
+};
+
 export const getOrders = async (req, res) => {
   try {
     const {
@@ -205,48 +253,6 @@ export const createOrder = async (req, res) => {
       });
     }
 
-    // Resep tersimpan dalam satuan dasar stok. Beberapa baris order untuk varian
-    // yang sama dijumlahkan sebelum stok diperiksa agar tidak terjadi stok negatif.
-    const variantIds = [...new Set(createdItems.map((item) => Number(item.product_variant_id)))];
-    const recipes = await ProductVariantMaterial.findAll({
-      where: { product_variant_id: { [Op.in]: variantIds } },
-      transaction: t,
-    });
-    const quantityByVariant = new Map();
-    for (const item of createdItems) {
-      quantityByVariant.set(
-        Number(item.product_variant_id),
-        (quantityByVariant.get(Number(item.product_variant_id)) || 0) + Number(item.quantity),
-      );
-    }
-    const materialUsage = new Map();
-    for (const recipe of recipes) {
-      const amount = Number(recipe.quantity) * (quantityByVariant.get(Number(recipe.product_variant_id)) || 0);
-      materialUsage.set(Number(recipe.material_id), (materialUsage.get(Number(recipe.material_id)) || 0) + amount);
-    }
-
-    const materialIds = [...materialUsage.keys()].sort((a, b) => a - b);
-    const stocks = materialIds.length
-      ? await MaterialStock.findAll({
-          where: { material_id: { [Op.in]: materialIds } },
-          order: [["material_id", "ASC"]],
-          transaction: t,
-          lock: t.LOCK.UPDATE,
-        })
-      : [];
-    const stockByMaterial = new Map(stocks.map((stock) => [Number(stock.material_id), stock]));
-    for (const [materialId, quantity] of materialUsage) {
-      const stock = stockByMaterial.get(materialId);
-      const available = Number(stock?.quantity || 0);
-      if (!stock || available < quantity) {
-        const material = await Material.findByPk(materialId, { attributes: ["name", "unit"], transaction: t });
-        await t.rollback();
-        return res.status(409).json({
-          message: `Stok ${material?.name || `bahan #${materialId}`} tidak cukup. Tersedia ${available} ${material?.unit || "unit"}, dibutuhkan ${quantity}.`,
-        });
-      }
-    }
-
     // Buat order
     const orderNumber = await generateOrderNumber();
     const order = await Order.create(
@@ -276,23 +282,6 @@ export const createOrder = async (req, res) => {
         ),
       ),
     );
-
-    for (const [materialId, quantity] of materialUsage) {
-      const stock = stockByMaterial.get(materialId);
-      await stock.update({ quantity: Number(stock.quantity) - quantity }, { transaction: t });
-      await MaterialTransaction.create(
-        {
-          material_id: materialId,
-          type: "USAGE",
-          quantity: -quantity,
-          reference_type: "order",
-          reference_id: order.id,
-          notes: `Pemakaian otomatis untuk pesanan ${orderNumber}`,
-          created_by: req.user?.id || null,
-        },
-        { transaction: t },
-      );
-    }
 
     // Pembayaran cash pada saat order dibuat langsung tercatat sebagai terverifikasi.
     if (payment_method === 'cash') {
@@ -378,40 +367,14 @@ export const updateOrder = async (req, res) => {
   }
 };
 
-const restoreOrderMaterials = async (order, transaction, userId) => {
-  const usages = await MaterialTransaction.findAll({
-    where: { reference_type: 'order', reference_id: order.id, type: 'USAGE' },
-    transaction,
-  });
-  for (const usage of usages) {
-    const alreadyReturned = await MaterialTransaction.findOne({
-      where: { reference_type: 'order_cancel', reference_id: order.id, material_id: usage.material_id, type: 'RETURN' },
-      transaction,
-    });
-    if (alreadyReturned) continue;
-    const stock = await MaterialStock.findOne({ where: { material_id: usage.material_id }, transaction, lock: transaction.LOCK.UPDATE });
-    if (!stock) throw new Error(`Stok bahan #${usage.material_id} tidak ditemukan`);
-    const quantity = Math.abs(Number(usage.quantity));
-    await stock.update({ quantity: Number(stock.quantity) + quantity }, { transaction });
-    await MaterialTransaction.create({
-      material_id: usage.material_id,
-      type: 'RETURN',
-      quantity,
-      reference_type: 'order_cancel',
-      reference_id: order.id,
-      notes: `Pengembalian stok pesanan ${order.order_number} yang dibatalkan`,
-      created_by: userId || null,
-    }, { transaction });
-  }
-};
-
 export const updateOrderStatus = async (req, res) => {
   const t = await db.transaction();
   try {
     const { id } = req.params;
     const { status } = req.body;
 
-    if (!status) {
+    if (!['pending', 'processing', 'ready', 'completed', 'cancelled'].includes(status)) {
+      await t.rollback();
       return res.status(400).json({ message: 'status wajib diisi' });
     }
 
@@ -421,8 +384,26 @@ export const updateOrderStatus = async (req, res) => {
       return res.status(404).json({ message: 'Order tidak ditemukan' });
     }
 
+    if (order.status === 'cancelled' && status !== 'cancelled') {
+      await t.rollback();
+      return res.status(409).json({ message: 'Pesanan yang sudah dibatalkan tidak dapat diproses kembali.' });
+    }
+
+    if (status === 'cancelled' && ['processing', 'ready', 'completed'].includes(order.status)) {
+      await t.rollback();
+      return res.status(409).json({ message: 'Pesanan yang sudah diproses tidak dapat dibatalkan atau dikembalikan stoknya.' });
+    }
     if (status === 'cancelled' && order.status !== 'cancelled') {
-      await restoreOrderMaterials(order, t, req.user?.id);
+      const existingUsage = await MaterialTransaction.findOne({
+        where: { reference_type: 'order', reference_id: order.id, type: 'USAGE' }, transaction: t,
+      });
+      if (existingUsage) {
+        await t.rollback();
+        return res.status(409).json({ message: 'Bahan baku pesanan ini sudah digunakan; status tidak dapat diubah menjadi cancel.' });
+      }
+    }
+    if (status === 'processing' && order.status !== 'processing') {
+      await consumeOrderMaterials(order, t, req.user?.id);
     }
 
     await order.update({ status }, { transaction: t });
@@ -434,7 +415,7 @@ export const updateOrderStatus = async (req, res) => {
     });
   } catch (error) {
     await t.rollback();
-    res.status(500).json({ message: error.message });
+    res.status(error.message.startsWith('Stok ') ? 409 : 500).json({ message: error.message });
   }
 };
 
@@ -496,9 +477,19 @@ export const deleteOrder = async (req, res) => {
       return res.status(404).json({ message: 'Order tidak ditemukan' });
     }
 
-    // Simpan riwayat PO untuk laporan, tandai cancelled, dan kembalikan stok.
+    // Hapus menjadi pembatalan tercatat hanya sebelum bahan baku digunakan.
     if (order.status !== 'cancelled') {
-      await restoreOrderMaterials(order, t, req.user?.id);
+      if (['processing', 'ready', 'completed'].includes(order.status)) {
+        await t.rollback();
+        return res.status(409).json({ message: 'Pesanan yang sudah diproses tidak dapat dibatalkan.' });
+      }
+      const existingUsage = await MaterialTransaction.findOne({
+        where: { reference_type: 'order', reference_id: order.id, type: 'USAGE' }, transaction: t,
+      });
+      if (existingUsage) {
+        await t.rollback();
+        return res.status(409).json({ message: 'Bahan baku pesanan ini sudah digunakan; pesanan tidak dapat dibatalkan.' });
+      }
       await order.update({ status: 'cancelled' }, { transaction: t });
     }
 
