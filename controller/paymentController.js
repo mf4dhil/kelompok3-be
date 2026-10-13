@@ -138,11 +138,29 @@ export const createPayment = async (req, res) => {
       paidAt = null;
     }
 
-    // Default amount jika tidak diberikan
-    // Jika payment_type = 'partial', gunakan 50% dari total order
-    let finalAmount = amount !== undefined && amount > 0 ? amount : order.total_amount;
-    if ((payment_type === 'dp' || payment_type === 'partial') && (!amount || amount <= 0)) {
-      finalAmount = Math.ceil(order.total_amount * 0.5);
+    // Hitung sisa tagihan dari pembayaran terverifikasi. Opsi "full" pada
+    // pembayaran lanjutan berarti melunasi sisa, bukan membayar total order lagi.
+    const verifiedPaymentsBefore = await Payment.findAll({
+      where: { order_id, status: 'verified' },
+      attributes: ['amount'],
+      transaction: t,
+    });
+    const totalPaidBefore = verifiedPaymentsBefore.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+    const remainingAmount = Math.max(0, Number(order.total_amount) - totalPaidBefore);
+    if (remainingAmount <= 0) {
+      await t.rollback();
+      return res.status(409).json({ message: 'Pesanan ini sudah lunas.' });
+    }
+
+    const requestedType = payment_type || (Number(amount) >= Number(order.total_amount) ? 'full' : 'dp');
+    const isDownPayment = requestedType === 'dp' || requestedType === 'partial';
+    const finalAmount = isDownPayment
+      ? Math.min(remainingAmount, Number(amount) > 0 ? Number(amount) : Math.ceil(Number(order.total_amount) * 0.5))
+      : remainingAmount;
+    const finalPaymentType = isDownPayment ? 'dp' : totalPaidBefore > 0 ? 'repayment' : 'full';
+    if (!Number.isFinite(finalAmount) || finalAmount <= 0) {
+      await t.rollback();
+      return res.status(400).json({ message: 'Nominal pembayaran tidak valid.' });
     }
 
     // Cek apakah file diupload
@@ -157,7 +175,7 @@ export const createPayment = async (req, res) => {
         rekening_id: payment_method === 'transfer' ? rekening_id : null,
         amount: finalAmount,
         payment_method,
-        payment_type: payment_type || (finalAmount >= order.total_amount ? "full" : "dp"),
+        payment_type: finalPaymentType,
         payment_proof: paymentProofPath,
         status: paymentStatus,
         paid_at: paidAt,

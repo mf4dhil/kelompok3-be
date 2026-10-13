@@ -45,6 +45,10 @@ export const updateRecipe = async (req, res) => {
       await transaction.rollback();
       return res.status(400).json({ message: "items harus berupa array resep" });
     }
+    if (items.length === 0) {
+      await transaction.rollback();
+      return res.status(400).json({ message: "Resep wajib memiliki minimal satu bahan baku" });
+    }
 
     const normalized = new Map();
     for (const item of items) {

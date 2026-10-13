@@ -31,27 +31,40 @@ const generateOrderNumber = async () => {
 };
 
 const consumeOrderMaterials = async (order, transaction, userId) => {
-  const priorUsage = await MaterialTransaction.findOne({
-    where: { reference_type: 'order', reference_id: order.id, type: 'USAGE' },
-    transaction,
-  });
-  if (priorUsage) return; // Prevent duplicate deduction for legacy orders or repeated requests.
-
   const items = await OrderItem.findAll({ where: { order_id: order.id }, transaction });
   const variantIds = [...new Set(items.map((item) => Number(item.product_variant_id)))];
   const recipes = variantIds.length ? await ProductVariantMaterial.findAll({
     where: { product_variant_id: { [Op.in]: variantIds } }, transaction,
   }) : [];
+  const variantsWithRecipes = new Set(recipes.map((recipe) => Number(recipe.product_variant_id)));
+  const variantsWithoutRecipes = variantIds.filter((variantId) => !variantsWithRecipes.has(variantId));
+  if (variantsWithoutRecipes.length) {
+    throw new Error(`Resep bahan baku belum diatur untuk varian #${variantsWithoutRecipes.join(', #')}. Lengkapi resep di menu Bahan > Resep sebelum memulai produksi.`);
+  }
+
   const quantitiesByVariant = new Map();
   for (const item of items) {
     const id = Number(item.product_variant_id);
     quantitiesByVariant.set(id, (quantitiesByVariant.get(id) || 0) + Number(item.quantity));
   }
-  const materialUsage = new Map();
+  const requiredUsageByMaterial = new Map();
   for (const recipe of recipes) {
     const amount = Number(recipe.quantity) * (quantitiesByVariant.get(Number(recipe.product_variant_id)) || 0);
-    materialUsage.set(Number(recipe.material_id), (materialUsage.get(Number(recipe.material_id)) || 0) + amount);
+    requiredUsageByMaterial.set(Number(recipe.material_id), (requiredUsageByMaterial.get(Number(recipe.material_id)) || 0) + amount);
   }
+  const priorUsageRows = await MaterialTransaction.findAll({
+    where: { reference_type: 'order', reference_id: order.id, type: 'USAGE' },
+    attributes: ['material_id', 'quantity'], transaction,
+  });
+  const alreadyUsedByMaterial = new Map();
+  for (const usage of priorUsageRows) {
+    const materialId = Number(usage.material_id);
+    alreadyUsedByMaterial.set(materialId, (alreadyUsedByMaterial.get(materialId) || 0) + Math.abs(Number(usage.quantity || 0)));
+  }
+  const materialUsage = new Map([...requiredUsageByMaterial].map(([materialId, required]) => [
+    materialId,
+    Math.max(0, required - (alreadyUsedByMaterial.get(materialId) || 0)),
+  ]).filter(([, remaining]) => remaining > 0.000001));
   const materialIds = [...materialUsage.keys()].sort((a, b) => a - b);
   const stocks = materialIds.length ? await MaterialStock.findAll({
     where: { material_id: { [Op.in]: materialIds } },
@@ -128,6 +141,10 @@ export const getOrders = async (req, res) => {
 
     const { count, rows } = await Order.findAndCountAll({
       where,
+      // OrderItem is a hasMany include; count unique orders so item joins do not
+      // inflate totalPages and expose empty pages in the admin list.
+      distinct: true,
+      col: "id",
       include: [
         { model: Customer, attributes: ["id", "name", "phone", "email", "address" ]},
         { model: OrderItem, include: [{ model: ProductVariant }] },
@@ -513,6 +530,11 @@ export const updateOrderStatus = async (req, res) => {
     }
 
     if (status === order.status) {
+      if (status === 'processing') {
+        await consumeOrderMaterials(order, t, req.user?.id);
+        await t.commit();
+        return res.json({ message: 'Sinkronisasi stok order berhasil.', data: order });
+      }
       await t.commit();
       return res.json({ message: 'Status order tidak berubah', data: order });
     }
@@ -581,7 +603,8 @@ export const updateOrderStatus = async (req, res) => {
     });
   } catch (error) {
     await t.rollback();
-    res.status(error.message.startsWith('Stok ') ? 409 : 500).json({ message: error.message });
+    const isInventoryConflict = error.message.startsWith('Stok ') || error.message.startsWith('Resep ');
+    res.status(isInventoryConflict ? 409 : 500).json({ message: error.message });
   }
 };
 
