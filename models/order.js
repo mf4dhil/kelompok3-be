@@ -41,6 +41,11 @@ const Order = db.define(
       type: DataTypes.ENUM("unpaid", "partial", "paid"),
       defaultValue: "unpaid",
     },
+    payment_method: {
+      type: DataTypes.ENUM("cash", "transfer", "ipaymu"),
+      allowNull: false,
+      defaultValue: "cash",
+    },
     // -- Moved payment related fields to payments table --
     // payment_method: {
     //   type: DataTypes.ENUM("cash", "transfer"),

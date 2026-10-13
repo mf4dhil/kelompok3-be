@@ -18,6 +18,7 @@ import {
   updatePayment,
   deletePayment,
 } from "../controller/paymentController.js";
+import { createIpaymuSession, handleIpaymuCallback } from "../controller/ipaymuController.js";
 
 const router = express.Router();
 
@@ -31,6 +32,8 @@ router.patch("/orders/:id/payment", authMiddleware, adminMiddleware, updateOrder
 router.delete("/orders/:id", authMiddleware, adminMiddleware, deleteOrder);
 
 // Routes Pembayaran (Normalisasi)
+router.post("/payments/ipaymu/session", createIpaymuSession);
+router.post("/payments/ipaymu/callback", handleIpaymuCallback);
 router.get("/payments", getPayments);
 router.get("/payments/:id", getPaymentById);
 router.post("/payments", authMiddleware, adminMiddleware, uploadMiddleware.single('payment_proof'), createPayment);

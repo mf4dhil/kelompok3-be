@@ -27,6 +27,7 @@ app.use(
 
 // Parse JSON request body
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 // Parse cookies (required for auth middleware to read JWT token)
 app.use(cookieParser());

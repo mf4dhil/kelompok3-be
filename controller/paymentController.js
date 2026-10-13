@@ -105,6 +105,11 @@ export const createPayment = async (req, res) => {
       return res.status(404).json({ message: "Order tidak ditemukan" });
     }
 
+    if (!['cash', 'transfer'].includes(payment_method)) {
+      await t.rollback();
+      return res.status(400).json({ message: "Pembayaran manual hanya mendukung cash atau transfer." });
+    }
+
     // Validasi rekening jika transfer
     if (payment_method === "transfer") {
       if (!rekening_id) {

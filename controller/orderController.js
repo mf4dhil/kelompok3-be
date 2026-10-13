@@ -197,7 +197,7 @@ export const trackOrder = async (req, res) => {
 
     const order = await Order.findOne({
       where: { order_number: orderNumber },
-      attributes: ['order_number', 'order_date', 'pickup_date', 'status', 'payment_status', 'total_amount', 'rekening_id'],
+      attributes: ['order_number', 'order_date', 'pickup_date', 'status', 'payment_status', 'payment_method', 'total_amount', 'rekening_id'],
       include: [{
         model: OrderItem,
         attributes: ['quantity'],
@@ -220,7 +220,7 @@ export const trackOrder = async (req, res) => {
         status: data.status,
         payment_status: data.payment_status,
         total_amount: data.total_amount,
-        payment_method: data.rekening_id ? 'transfer' : 'cash',
+        payment_method: data.payment_method || (data.rekening_id ? 'transfer' : 'cash'),
         items: (data.order_items || data.orderItems || data.OrderItems || []).map((item) => {
           const variant = item.ProductVariant || item.productvariant || item.product_variant || {};
           const product = variant.Product || variant.product || {};
@@ -262,7 +262,12 @@ export const createOrder = async (req, res) => {
       return res.status(400).json({ message: 'Pickup date tidak boleh sebelum hari ini' });
     }
 
-    // Validasi payment_method dan rekening_id
+    if (!['cash', 'transfer', 'ipaymu'].includes(payment_method)) {
+      await t.rollback();
+      return res.status(400).json({ message: 'payment_method harus cash, transfer, atau ipaymu' });
+    }
+
+    // Rekening hanya diperlukan untuk transfer manual.
     if (payment_method === 'transfer') {
       if (!rekening_id) {
         await t.rollback();
@@ -336,10 +341,10 @@ export const createOrder = async (req, res) => {
         pickup_date,
         notes: notes || null,
         total_amount: totalAmount,
-        payment_method: payment_method || null,
         rekening_id: rekening_id || null,
         status: 'pending',
         payment_status: 'unpaid',
+        payment_method,
       },
       { transaction: t },
     );
@@ -357,8 +362,8 @@ export const createOrder = async (req, res) => {
       ),
     );
 
-    // Pesanan dari checkout customer belum membuktikan pembayaran. Semua metode
-    // menunggu admin mencatat pembayaran setelah dana diterima/diperiksa.
+    // Untuk iPaymu, checkout gateway dimulai setelah order tersimpan. Callback
+    // tervalidasi akan mencatat pembayaran; tunai tetap dicatat admin saat diterima.
 
     await t.commit();
 
@@ -562,7 +567,7 @@ export const updateOrderStatus = async (req, res) => {
       return res.status(409).json({ message: 'Konfirmasi order terlebih dahulu sebelum memulai produksi.' });
     }
 
-    if (status === 'processing' && order.payment_status === 'unpaid' && order.rekening_id) {
+    if (status === 'processing' && order.payment_status === 'unpaid' && (order.payment_method === 'ipaymu' || order.rekening_id)) {
       await t.rollback();
       return res.status(409).json({ message: 'Pembayaran belum diverifikasi. Catat pembayaran yang sudah diterima sebelum memproses pesanan.' });
     }

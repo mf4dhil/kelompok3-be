@@ -20,9 +20,17 @@ const Payment = db.define(
       allowNull: false,
     },
     payment_method: {
-      type: DataTypes.ENUM("cash", "transfer"),
+      type: DataTypes.ENUM("cash", "transfer", "ipaymu"),
       allowNull: false,
     },
+    payment_provider: { type: DataTypes.STRING(30), allowNull: false, defaultValue: "manual" },
+    gateway_reference_id: { type: DataTypes.STRING(100), allowNull: true, unique: true },
+    gateway_transaction_id: { type: DataTypes.STRING(100), allowNull: true },
+    gateway_session_id: { type: DataTypes.STRING(100), allowNull: true },
+    gateway_url: { type: DataTypes.TEXT, allowNull: true },
+    gateway_channel: { type: DataTypes.STRING(50), allowNull: true },
+    gateway_payment_no: { type: DataTypes.STRING(100), allowNull: true },
+    expires_at: { type: DataTypes.DATE, allowNull: true },
     payment_proof: {
       type: DataTypes.STRING(255), // Path file gambar bukti pembayaran
       allowNull: true,
