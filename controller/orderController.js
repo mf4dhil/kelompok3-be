@@ -170,6 +170,52 @@ export const getOrderById = async (req, res) => {
   }
 };
 
+// Public, minimal order lookup for customers tracking a cake order by receipt number.
+export const trackOrder = async (req, res) => {
+  try {
+    const orderNumber = String(req.params.orderNumber || '').trim().toUpperCase();
+    if (!/^ORD-\d{8}-\d{4}$/.test(orderNumber)) {
+      return res.status(400).json({ message: 'Format nomor order tidak valid.' });
+    }
+
+    const order = await Order.findOne({
+      where: { order_number: orderNumber },
+      attributes: ['order_number', 'order_date', 'pickup_date', 'status', 'payment_status', 'total_amount', 'rekening_id'],
+      include: [{
+        model: OrderItem,
+        attributes: ['quantity'],
+        include: [{
+          model: ProductVariant,
+          attributes: ['id'],
+          include: [{ model: Product, attributes: ['name'] }],
+        }],
+      }],
+    });
+
+    if (!order) return res.status(404).json({ message: 'Pesanan dengan nomor tersebut tidak ditemukan.' });
+
+    const data = order.toJSON();
+    return res.json({
+      data: {
+        order_number: data.order_number,
+        order_date: data.order_date,
+        pickup_date: data.pickup_date,
+        status: data.status,
+        payment_status: data.payment_status,
+        total_amount: data.total_amount,
+        payment_method: data.rekening_id ? 'transfer' : 'cash',
+        items: (data.order_items || data.orderItems || data.OrderItems || []).map((item) => {
+          const variant = item.ProductVariant || item.productvariant || item.product_variant || {};
+          const product = variant.Product || variant.product || {};
+          return { name: product.name || 'Kue', quantity: item.quantity };
+        }),
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message || 'Pesanan belum dapat dilacak.' });
+  }
+};
+
 export const createOrder = async (req, res) => {
   const t = await db.transaction();
   try {
@@ -294,25 +340,8 @@ export const createOrder = async (req, res) => {
       ),
     );
 
-    // Pembayaran cash pada saat order dibuat langsung tercatat sebagai terverifikasi.
-    if (payment_method === 'cash') {
-      const isFullPayment = payment_option === 'full';
-      const paymentAmount = isFullPayment ? totalAmount : Math.ceil(totalAmount * 0.5);
-
-      await Payment.create(
-        {
-          order_id: order.id,
-          amount: paymentAmount,
-          payment_method: 'cash',
-          payment_type: isFullPayment ? 'full' : 'partial',
-          status: 'verified',
-          paid_at: new Date(),
-        },
-        { transaction: t },
-      );
-
-      await order.update({ payment_status: isFullPayment ? 'paid' : 'partial' }, { transaction: t });
-    }
+    // Pesanan dari checkout customer belum membuktikan pembayaran. Semua metode
+    // menunggu admin mencatat pembayaran setelah dana diterima/diperiksa.
 
     await t.commit();
 
@@ -332,41 +361,128 @@ export const createOrder = async (req, res) => {
 };
 
 export const updateOrder = async (req, res) => {
+  const t = await db.transaction();
   try {
     const { id } = req.params;
 
-    const order = await Order.findByPk(id);
+    const order = await Order.findByPk(id, { transaction: t, lock: t.LOCK.UPDATE });
     if (!order) {
+      await t.rollback();
       return res.status(404).json({ message: 'Order tidak ditemukan' });
     }
 
-    const { notes, pickup_date } = req.body;
-
-    // Jangan izinkan ubah total_amount langsung
-    if (req.body.total_amount !== undefined) {
-      return res.status(400).json({
-        message: 'total_amount tidak boleh diubah langsung',
-      });
+    if (!['pending', 'confirmed'].includes(order.status)) {
+      await t.rollback();
+      return res.status(409).json({ message: 'Order hanya dapat diedit sebelum produksi dimulai.' });
     }
 
+    const { notes, pickup_date, items, customer } = req.body;
     if (pickup_date) {
       const pickupDate = new Date(pickup_date);
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       if (pickupDate < today) {
+        await t.rollback();
         return res.status(400).json({
           message: 'Pickup date tidak boleh sebelum hari ini',
         });
       }
     }
 
+    let updatedTotal = Number(order.total_amount);
+    let replacementItems = null;
+    if (items !== undefined) {
+      if (!Array.isArray(items) || items.length === 0) {
+        await t.rollback();
+        return res.status(400).json({ message: 'Order harus memiliki minimal satu item.' });
+      }
+
+      replacementItems = [];
+      updatedTotal = 0;
+      for (const item of items) {
+        const variantId = Number(item.product_variant_id);
+        const quantity = Number(item.quantity);
+        if (!Number.isInteger(variantId) || variantId < 1 || !Number.isInteger(quantity) || quantity < 1) {
+          await t.rollback();
+          return res.status(400).json({ message: 'Setiap item harus memiliki varian dan jumlah bulat minimal 1.' });
+        }
+        const variant = await ProductVariant.findByPk(variantId, { transaction: t, lock: t.LOCK.UPDATE });
+        if (!variant) {
+          await t.rollback();
+          return res.status(404).json({ message: `Varian produk #${variantId} tidak ditemukan.` });
+        }
+        const price = Number(variant.price);
+        const subtotal = price * quantity;
+        updatedTotal += subtotal;
+        replacementItems.push({
+          product_variant_id: variantId,
+          quantity,
+          price,
+          subtotal,
+          notes: item.notes || null,
+        });
+      }
+
+      const verifiedPayments = await Payment.findAll({ where: { order_id: order.id, status: 'verified' }, transaction: t });
+      const totalPaid = verifiedPayments.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+      if (totalPaid > updatedTotal) {
+        await t.rollback();
+        return res.status(409).json({ message: 'Total baru lebih kecil dari pembayaran terverifikasi. Sesuaikan pembayaran terlebih dahulu.' });
+      }
+      const paymentStatus = totalPaid >= updatedTotal ? 'paid' : totalPaid > 0 ? 'partial' : 'unpaid';
+      await order.update({ total_amount: updatedTotal, payment_status: paymentStatus }, { transaction: t });
+      await OrderItem.destroy({ where: { order_id: order.id }, transaction: t });
+      for (const item of replacementItems) {
+        await OrderItem.create({ order_id: order.id, ...item }, { transaction: t });
+      }
+    }
+
+    const customerFields = customer && typeof customer === 'object' ? customer : {};
+    if (Object.keys(customerFields).length) {
+      const customerRecord = await Customer.findByPk(order.customer_id, { transaction: t, lock: t.LOCK.UPDATE });
+      if (!customerRecord) {
+        await t.rollback();
+        return res.status(404).json({ message: 'Data customer pada order tidak ditemukan.' });
+      }
+      const nextCustomer = {
+        ...(customerFields.name !== undefined && { name: String(customerFields.name).trim() }),
+        ...(customerFields.phone !== undefined && { phone: String(customerFields.phone).trim() }),
+        ...(customerFields.email !== undefined && { email: String(customerFields.email).trim() || null }),
+        ...(customerFields.address !== undefined && { address: String(customerFields.address).trim() || null }),
+      };
+      if (nextCustomer.name !== undefined && (!nextCustomer.name || nextCustomer.name.length > 100)) {
+        await t.rollback();
+        return res.status(400).json({ message: 'Nama customer wajib diisi dan maksimal 100 karakter.' });
+      }
+      if (nextCustomer.phone !== undefined && (!nextCustomer.phone || nextCustomer.phone.length > 20)) {
+        await t.rollback();
+        return res.status(400).json({ message: 'Nomor telepon customer wajib diisi dan maksimal 20 karakter.' });
+      }
+      if (nextCustomer.email && nextCustomer.email.length > 30) {
+        await t.rollback();
+        return res.status(400).json({ message: 'Email customer maksimal 30 karakter.' });
+      }
+      if (nextCustomer.address && nextCustomer.address.length > 100) {
+        await t.rollback();
+        return res.status(400).json({ message: 'Alamat customer maksimal 100 karakter.' });
+      }
+      await customerRecord.update(nextCustomer, { transaction: t });
+    }
+
     await order.update({
       ...(notes !== undefined && { notes }),
       ...(pickup_date && { pickup_date }),
-    });
+    }, { transaction: t });
+
+    await t.commit();
 
     const updatedOrder = await Order.findByPk(id, {
-      include: [{ model: Customer }, { model: OrderItem, include: [{ model: ProductVariant }] }, { model: Rekening, as: 'rekening' }],
+      include: [
+        { model: Customer },
+        { model: OrderItem, include: [{ model: ProductVariant, include: [{ model: Product }] }] },
+        { model: Rekening, as: 'rekening' },
+        { model: Payment, as: 'payments', include: [{ model: Rekening, as: 'rekening' }], separate: true, order: [['created_at', 'DESC']] },
+      ],
     });
 
     res.json({
@@ -374,6 +490,7 @@ export const updateOrder = async (req, res) => {
       data: updatedOrder,
     });
   } catch (error) {
+    if (!t.finished) await t.rollback();
     res.status(500).json({ message: error.message });
   }
 };
@@ -384,7 +501,7 @@ export const updateOrderStatus = async (req, res) => {
     const { id } = req.params;
     const { status } = req.body;
 
-    if (!['pending', 'processing', 'ready', 'completed', 'cancelled'].includes(status)) {
+    if (!['pending', 'confirmed', 'processing', 'ready', 'completed', 'cancelled'].includes(status)) {
       await t.rollback();
       return res.status(400).json({ message: 'status wajib diisi' });
     }
@@ -395,9 +512,47 @@ export const updateOrderStatus = async (req, res) => {
       return res.status(404).json({ message: 'Order tidak ditemukan' });
     }
 
-    if (order.status === 'cancelled' && status !== 'cancelled') {
+    if (status === order.status) {
+      await t.commit();
+      return res.json({ message: 'Status order tidak berubah', data: order });
+    }
+
+    const allowedTransitions = {
+      pending: ['confirmed', 'cancelled'],
+      confirmed: ['processing', 'cancelled'],
+      processing: ['ready'],
+      ready: ['completed'],
+      completed: [],
+      cancelled: [],
+    };
+    if (!allowedTransitions[order.status]?.includes(status)) {
       await t.rollback();
-      return res.status(409).json({ message: 'Pesanan yang sudah dibatalkan tidak dapat diproses kembali.' });
+      return res.status(409).json({ message: `Perubahan status dari ${order.status} ke ${status} tidak diizinkan.` });
+    }
+
+    if (status === 'confirmed' && order.status !== 'pending') {
+      await t.rollback();
+      return res.status(409).json({ message: 'Hanya order yang menunggu konfirmasi yang dapat dikonfirmasi.' });
+    }
+
+    if (status === 'processing' && order.status === 'pending') {
+      await t.rollback();
+      return res.status(409).json({ message: 'Konfirmasi order terlebih dahulu sebelum memulai produksi.' });
+    }
+
+    if (status === 'processing' && order.payment_status === 'unpaid' && order.rekening_id) {
+      await t.rollback();
+      return res.status(409).json({ message: 'Pembayaran belum diverifikasi. Catat pembayaran yang sudah diterima sebelum memproses pesanan.' });
+    }
+
+    if (status === 'processing' && order.payment_status === 'unpaid' && order.status !== 'confirmed') {
+      await t.rollback();
+      return res.status(409).json({ message: 'Konfirmasi customer untuk order tunai terlebih dahulu sebelum memulai produksi.' });
+    }
+
+    if (status === 'completed' && order.payment_status !== 'paid') {
+      await t.rollback();
+      return res.status(409).json({ message: 'Pesanan hanya dapat diselesaikan setelah pembayaran lunas dicatat.' });
     }
 
     if (status === 'cancelled' && ['processing', 'ready', 'completed'].includes(order.status)) {

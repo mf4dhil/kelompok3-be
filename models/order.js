@@ -26,7 +26,7 @@ const Order = db.define(
       allowNull: false,
     },
     status: {
-      type: DataTypes.ENUM("pending", "processing", "ready", "completed", "cancelled"),
+      type: DataTypes.ENUM("pending", "confirmed", "processing", "ready", "completed", "cancelled"),
       defaultValue: "pending",
     },
     notes: {

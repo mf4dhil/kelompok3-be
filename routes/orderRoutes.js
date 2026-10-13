@@ -4,6 +4,7 @@ import { authMiddleware, adminMiddleware } from "../middleware/index.middleware.
 import {
   getOrders,
   getOrderById,
+  trackOrder,
   createOrder,
   updateOrder,
   updateOrderStatus,
@@ -21,18 +22,19 @@ import {
 const router = express.Router();
 
 router.get("/orders", getOrders);
+router.get("/orders/track/:orderNumber", trackOrder);
 router.get("/orders/:id", getOrderById);
 router.post("/orders", createOrder);
-router.patch("/orders/:id", updateOrder);
-router.patch("/orders/:id/status", updateOrderStatus);
-router.patch("/orders/:id/payment", updateOrderPayment);
-router.delete("/orders/:id", deleteOrder);
+router.patch("/orders/:id", authMiddleware, adminMiddleware, updateOrder);
+router.patch("/orders/:id/status", authMiddleware, adminMiddleware, updateOrderStatus);
+router.patch("/orders/:id/payment", authMiddleware, adminMiddleware, updateOrderPayment);
+router.delete("/orders/:id", authMiddleware, adminMiddleware, deleteOrder);
 
 // Routes Pembayaran (Normalisasi)
 router.get("/payments", getPayments);
 router.get("/payments/:id", getPaymentById);
-router.post("/payments", authMiddleware, uploadMiddleware.single('payment_proof'), createPayment);
+router.post("/payments", authMiddleware, adminMiddleware, uploadMiddleware.single('payment_proof'), createPayment);
 router.patch("/payments/:id", authMiddleware, adminMiddleware, uploadMiddleware.single('payment_proof'), updatePayment);
-router.delete("/payments/:id", deletePayment);
+router.delete("/payments/:id", authMiddleware, adminMiddleware, deletePayment);
 
 export default router;

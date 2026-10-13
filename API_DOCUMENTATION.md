@@ -219,7 +219,7 @@
 ### GET `/api/orders`
 - **Deskripsi:** List order dengan pagination & filter
 - **Parameter filter:**
-  - `status` (ENUM: pending, processing, ready, completed, cancelled)
+  - `status` (ENUM: pending, confirmed, processing, ready, completed, cancelled)
   - `payment_status` (ENUM: unpaid, partial, paid)
   - `customer_id` (integer)
   - `pickup_date` (YYYY-MM-DD)
@@ -268,10 +268,17 @@
 - **Response (201):** `{ msg: "Order berhasil dibuat", data: order lengkap }`
 
 ### PATCH `/api/orders/:id`
-- **Deskripsi:** Update data order (notes, pickup_date)
-- **⚠️ TIDAK BOLEH ubah total_amount langsung**
-- **Validasi:** pickup_date >= hari ini
+- **Deskripsi:** Admin dapat mengubah data customer, item, catatan, dan pickup_date sebelum order diproses.
+- **Validasi:** harga/total dihitung ulang dari varian di database; order hanya bisa diedit dalam status `pending` atau `confirmed`; total baru tidak boleh lebih kecil dari pembayaran terverifikasi.
 - **Response (200):** Data order terbaru
+
+### PATCH `/api/orders/:id/status`
+- **Transisi:** `pending` → `confirmed` → `processing` → `ready` → `completed`; `pending`/`confirmed` dapat menjadi `cancelled`.
+- **Aturan:** order tunai dapat mulai diproses setelah dikonfirmasi admin meskipun belum dibayar; order transfer harus memiliki pembayaran terverifikasi sebelum diproses; pembayaran harus lunas sebelum order selesai.
+- **Response (409):** Transisi status atau aturan pembayaran tidak terpenuhi.
+
+### Migrasi database
+- Sebelum deploy status `confirmed`, jalankan sekali SQL di `migrations/20261013_add_confirmed_order_status.sql` pada database MySQL.
 
 ### PATCH `/api/orders/:id/status`
 - **Deskripsi:** Update status order
@@ -345,7 +352,7 @@
 | Order belongsTo Customer | Setiap order miliki customer |
 
 ### ENUM Values
-- **orders.status:** pending, processing, ready, completed, cancelled
+- **orders.status:** pending, confirmed, processing, ready, completed, cancelled
 - **orders.payment_status:** unpaid, partial, paid
 - **orders.payment_method:** cash, transfer
 - **orders.role:** admin (default di register)

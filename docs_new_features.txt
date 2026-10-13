@@ -63,7 +63,7 @@ PATCH /orders/:id/payment | PATCH  | Update payment_status, payment_method, reke
 DELETE /orders/:id        | DELETE | Hapus order + items (dalam transaction)
 
 Filter GET /orders:
-- status: ENUM [pending, processing, ready, completed, cancelled]
+- status: ENUM [pending, confirmed, processing, ready, completed, cancelled]
 - payment_status: ENUM [unpaid, partial, paid]
 - customer_id: UUID (format validated)
 - pickup_date: DATE (format YYYY-MM-DD)
@@ -102,7 +102,7 @@ RELASI DATABASE:
 - Order belongsTo Rekening (optional); Rekening hasMany Order
 
 ENUM VALUES:
-- orders.status: [pending, processing, ready, completed, cancelled]
+- orders.status: [pending, confirmed, processing, ready, completed, cancelled]
 - orders.payment_status: [unpaid, partial, paid]
 - orders.payment_method: [cash, transfer]
 
