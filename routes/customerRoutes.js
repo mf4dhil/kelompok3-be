@@ -2,6 +2,7 @@ import express from "express";
 import {
   getCustomers,
   getCustomerById,
+  findCustomerByPhone,
   createCustomer,
   updateCustomer,
   deleteCustomer,
@@ -10,6 +11,7 @@ import {
 const router = express.Router();
 
 router.get("/customers", getCustomers);
+router.get("/customers/lookup", findCustomerByPhone);
 router.get("/customers/:id", getCustomerById);
 router.post("/customers", createCustomer);
 router.patch("/customers/:id", updateCustomer);

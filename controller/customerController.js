@@ -44,6 +44,17 @@ export const getCustomerById = async (req, res) => {
   }
 };
 
+export const findCustomerByPhone = async (req, res) => {
+  try {
+    const phone = String(req.query.phone || '').trim();
+    if (!phone) return res.status(400).json({ message: 'Nomor telepon wajib diisi' });
+    const customer = await Customer.findOne({ where: { phone }, order: [['created_at', 'DESC']] });
+    res.json({ data: customer });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 export const createCustomer = async (req, res) => {
   try {
     const { name, phone, email, address } = req.body;

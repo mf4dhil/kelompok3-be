@@ -4,6 +4,8 @@ import Size from '../models/size.js';
 import Flavor from '../models/flavors.js';
 import ProductVariant from '../models/productvariants.js';
 import OrderItem from '../models/order_item.js';
+import ProductVariantMaterial from '../models/product_variant_material.js';
+import Material from '../models/material.js';
 import { Op } from 'sequelize';
 import { getVariantCombinationKey, getVariantValidationError } from '../utils/productVariantValidation.js';
 
@@ -49,6 +51,7 @@ export const createProduct = async (req, res) => {
   const t = await Product.sequelize.transaction();
   try {
     const { name, description, type_id, is_active, variants } = req.body;
+    const isActive = is_active === undefined ? true : is_active === true || is_active === 'true';
 
     if (!name || !type_id) {
       await t.rollback();
@@ -80,8 +83,9 @@ export const createProduct = async (req, res) => {
       name,
       slug,
       description: description || null,
+      image: req.file ? `/uploads/products/${req.file.filename}` : null,
       type_id,
-      is_active: is_active !== undefined ? is_active : true,
+      is_active: isActive,
     }, { transaction: t });
 
     // Create all variants if provided
@@ -123,6 +127,24 @@ export const addProductVariants = async (req, res) => {
       return res.status(400).json({ message: 'Minimal satu variant harus dipilih' });
     }
 
+    const recipeMaterials = new Set();
+    const normalizedRecipes = variants.map((variant) => {
+      if (!Array.isArray(variant.recipe_items) || variant.recipe_items.length === 0) {
+        throw new Error('Setiap varian harus memiliki minimal satu bahan resep');
+      }
+      const recipe = new Map();
+      for (const item of variant.recipe_items) {
+        const materialId = Number(item.material_id);
+        const quantity = Number(item.quantity);
+        if (!Number.isInteger(materialId) || materialId < 1 || !Number.isFinite(quantity) || quantity <= 0) {
+          throw new Error('Setiap bahan harus memiliki material_id dan takaran lebih dari 0');
+        }
+        recipeMaterials.add(materialId);
+        recipe.set(materialId, (recipe.get(materialId) || 0) + quantity);
+      }
+      return recipe;
+    });
+
     // Check product exists
     const product = await Product.findByPk(id, { transaction: t });
     if (!product) {
@@ -135,6 +157,16 @@ export const addProductVariants = async (req, res) => {
     if (validationError) {
       await t.rollback();
       return res.status(400).json({ message: validationError });
+    }
+
+    const activeMaterials = await Material.findAll({
+      where: { id: { [Op.in]: [...recipeMaterials] }, is_active: true },
+      attributes: ['id'],
+      transaction: t,
+    });
+    if (activeMaterials.length !== recipeMaterials.size) {
+      await t.rollback();
+      return res.status(400).json({ message: 'Resep berisi bahan yang tidak ditemukan atau tidak aktif' });
     }
 
     // Check for duplicate combinations against existing variants
@@ -168,6 +200,15 @@ export const addProductVariants = async (req, res) => {
       }, { transaction: t })
     ));
 
+    const recipeRows = createdVariants.flatMap((variant, index) =>
+      [...normalizedRecipes[index]].map(([material_id, quantity]) => ({
+        product_variant_id: variant.id,
+        material_id,
+        quantity,
+      }))
+    );
+    await ProductVariantMaterial.bulkCreate(recipeRows, { transaction: t });
+
     await t.commit();
 
     res.status(201).json({
@@ -175,8 +216,9 @@ export const addProductVariants = async (req, res) => {
       variants: createdVariants,
     });
   } catch (error) {
-    await t.rollback();
-    res.status(500).json({ message: error.message });
+    if (!t.finished) await t.rollback();
+    const clientError = error.message.includes('bahan') || error.message.includes('takaran');
+    res.status(clientError ? 400 : 500).json({ message: error.message });
   }
 };
 
@@ -198,8 +240,9 @@ export const updateProduct = async (req, res) => {
     await product.update({
       ...(name && { name }),
       ...(description !== undefined && { description }),
+      ...(req.file && { image: `/uploads/products/${req.file.filename}` }),
       ...(type_id && { type_id }),
-      ...(is_active !== undefined && { is_active }),
+      ...(is_active !== undefined && { is_active: is_active === true || is_active === 'true' }),
     }, { transaction: t });
 
     // If variants provided, handle variant updates

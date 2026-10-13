@@ -4,6 +4,7 @@ import * as userController from '../controller/user.controller.js';
 import * as productController from '../controller/productController.js';
 import { getDashboardSummary } from '../controller/dashboardController.js';
 import { authMiddleware, adminMiddleware } from '../middleware/index.middleware.js';
+import productImageUpload from '../middleware/productImageUpload.js';
 
 const router = express.Router();
 
@@ -25,9 +26,9 @@ router.put('/profile/edit', authMiddleware, userController.editProfileSelf);
 router.get('/products/customer', productController.getCustomerProducts);
 router.get('/products', productController.getProducts);
 router.get('/products/:id', productController.getProductById);
-router.post('/products', authMiddleware, adminMiddleware, productController.createProduct);
-router.put('/products/:id', authMiddleware, adminMiddleware, productController.updateProduct);
-router.patch('/products/:id', authMiddleware, adminMiddleware, productController.updateProduct);
+router.post('/products', authMiddleware, adminMiddleware, productImageUpload.single('image'), productController.createProduct);
+router.put('/products/:id', authMiddleware, adminMiddleware, productImageUpload.single('image'), productController.updateProduct);
+router.patch('/products/:id', authMiddleware, adminMiddleware, productImageUpload.single('image'), productController.updateProduct);
 router.patch('/products/:id/status', authMiddleware, adminMiddleware, productController.updateProductStatus);
 router.delete('/products/:id', authMiddleware, adminMiddleware, productController.deleteProduct);
 
